@@ -4,6 +4,8 @@
 
 本專案從 `cc-crossbeam` 的文件審查與補正回覆流程映射而來，但不直接移植美國 ADU 法規邏輯。現階段先建立 `tw-law-mcp`：一個可由 Codex、Claude Code 或其他 agent host 呼叫的 deterministic、source-bound MCP 工具，用來查詢台灣／新北市室內裝修相關的 P0 法規與程序資料。
 
+GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓已安裝 Codex App 的使用者快速完成 clone、MCP 啟動、Phase acceptance 與資料邊界確認。
+
 ## 目前定位（v0.3 對齊）
 
 - 目標使用者：建築師、室內裝修業者、代辦人員、審查文件整理者。
@@ -70,6 +72,11 @@
 .
 ├── README.md
 ├── pyproject.toml
+├── docs/
+│   ├── index.html
+│   ├── styles.css
+│   ├── ADR-0001-packaging-strategy.md
+│   └── cc-crossbeam-feature-matrix.md
 ├── scripts/
 │   ├── build_law_snapshot.py
 │   ├── run_fixture_pipeline.py

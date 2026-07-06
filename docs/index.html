@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cc-crossbeam-tw | Codex App 快速上手</title>
+    <meta
+      name="description"
+      content="給已安裝 Codex App 的使用者：快速啟動 cc-crossbeam-tw 與 tw-law-mcp，跑完台灣室內裝修文件助手的 Phase acceptance。"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero-inner hero-grid">
+        <div>
+          <p class="eyebrow">Codex App onboarding for tw-law-mcp</p>
+          <h1>cc-crossbeam-tw</h1>
+          <p class="lead">
+            台灣建築／室內裝修審查文件助手原型。這個頁面給已安裝 Codex App 的使用者，用最短路徑把 repo 拉下來、啟用 MCP、跑完驗收，再開始做文件輔助流程。
+          </p>
+          <div class="hero-actions">
+            <a class="button" href="#start">開始設定</a>
+            <a class="button secondary" href="#safety">資料邊界</a>
+          </div>
+        </div>
+        <div class="workflow-visual" aria-label="tw-law-mcp workflow overview">
+          <div class="visual-title">
+            <strong>Phase flow</strong>
+            <span>metadata-only boundary</span>
+          </div>
+          <div class="nodes">
+            <div class="node">
+              <div class="node-index">1</div>
+              <div>
+                <strong>Codex App</strong>
+                <span>開啟 repo 並讀取專案 MCP 設定。</span>
+              </div>
+            </div>
+            <div class="node">
+              <div class="node-index">2</div>
+              <div>
+                <strong>tw-law-mcp</strong>
+                <span>提供法規快照、程序分流、HITL、metadata 與 gates。</span>
+              </div>
+            </div>
+            <div class="node">
+              <div class="node-index">3</div>
+              <div>
+                <strong>Phase acceptance</strong>
+                <span>用 deterministic scripts 驗證六個 roadmap gates。</span>
+              </div>
+            </div>
+            <div class="node">
+              <div class="node-index">4</div>
+              <div>
+                <strong>Human review</strong>
+                <span>低信心與需人工認定項目 fail-closed。</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section id="start">
+        <div class="section-inner">
+          <h2>首次使用流程</h2>
+          <div class="steps">
+            <article class="step">
+              <div class="step-number">1</div>
+              <div>
+                <h3>Clone repo</h3>
+                <p>在本機準備專案目錄，讓 Codex App 開啟這個 repository。</p>
+                <pre><code>git clone https://github.com/trionnemesis/cc-crossbeam-tw.git
+cd cc-crossbeam-tw</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">2</div>
+              <div>
+                <h3>確認 Codex MCP 設定</h3>
+                <p>Codex App 會讀取專案內的 <code>.codex/config.toml</code>，其中的 MCP server 指向 <code>scripts/tw_law_mcp_stdio.py</code>。</p>
+                <pre><code>python3 scripts/tw_law_mcp_stdio.py</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">3</div>
+              <div>
+                <h3>跑全部驗收</h3>
+                <p>這個指令會聚合驗證 P0 source policy、procedure/HITL、G2 fixture、metadata、jurisdiction registry 與 packaging strategy。</p>
+                <pre><code>python3 scripts/run_phase_acceptance.py</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">4</div>
+              <div>
+                <h3>在 Codex App 內開始問</h3>
+                <p>使用 source-bound、metadata-only 的工作方式，不要把 raw drawing 或未遮罩申請文件直接貼進 prompt。</p>
+                <pre><code>請使用 tw-law-mcp，針對新北市室內裝修圖說審核，建立 law snapshot 並說明需要人工確認的項目。</code></pre>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-inner">
+          <h2>你可以直接驗證的能力</h2>
+          <div class="grid">
+            <article class="card">
+              <h3>P0 source policy</h3>
+              <p>驗證官方文件來源授權、更新政策、crawl policy 與 comparison coverage。</p>
+              <pre><code>python3 scripts/run_source_policy_acceptance.py</code></pre>
+            </article>
+            <article class="card">
+              <h3>G2 fixture baseline</h3>
+              <p>驗證 12 份 synthetic de-identified cases 與 84 個 atomic correction items。</p>
+              <pre><code>python3 scripts/run_fixture_pipeline.py</code></pre>
+            </article>
+            <article class="card">
+              <h3>Packaging strategy</h3>
+              <p>驗證 Codex/Claude Code wrappers 都指向 standalone MCP server。</p>
+              <pre><code>python3 scripts/run_packaging_acceptance.py</code></pre>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="safety">
+        <div class="section-inner">
+          <h2>資料邊界</h2>
+          <div class="split">
+            <article class="card note">
+              <h3>可以交給工具的內容</h3>
+              <ul>
+                <li>已遮罩的公文文字。</li>
+                <li>檔名、圖號、頁名、sheet type 等 metadata。</li>
+                <li>fixture 或 synthetic de-identified cases。</li>
+                <li>法規 snapshot、acceptance output、HITL answers。</li>
+              </ul>
+            </article>
+            <article class="card risk">
+              <h3>不要直接貼進 prompt 的內容</h3>
+              <ul>
+                <li>未遮罩的設計圖、title block、地址、姓名、電話、身分證字號。</li>
+                <li>raw PDF、raw drawing、完整申請文件影像。</li>
+                <li>任何客戶授權範圍不明的資料。</li>
+                <li>可被包裝成法律意見或審查保證的結論。</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-inner">
+          <h2>常用 Codex App prompt</h2>
+          <div class="steps">
+            <article class="step">
+              <div class="step-number">A</div>
+              <div>
+                <h3>檢查目前工具狀態</h3>
+                <pre><code>請列出 tw-law-mcp 目前可用工具，並跑 run_phase_acceptance 確認所有 gates。</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">B</div>
+              <div>
+                <h3>建立新北市圖說審核 snapshot</h3>
+                <pre><code>請用 build_law_snapshot 建立 jurisdiction={central:"TW", local:"ntpc"}、case_type="室內裝修"、procedure_stage="圖說審核" 的法規快照。</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">C</div>
+              <div>
+                <h3>處理已遮罩公文</h3>
+                <pre><code>以下是已遮罩公文文字。請 parse_masked_document，normalize_atomic_correction_items，並產生 HITL confirmation packet。</code></pre>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="section-inner">
+        <p>
+          cc-crossbeam-tw 只提供來源可追溯的文件輔助，不提供法律意見、合規保證、違章認定或審查必過承諾。
+          Production 導入前需以 approved real de-identified cases 補強 synthetic fixture，並建立 live source ingestion/refresh workflow。
+        </p>
+      </div>
+    </footer>
+  </body>
+</html>
