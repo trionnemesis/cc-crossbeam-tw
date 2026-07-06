@@ -87,6 +87,64 @@ Add a Taiwan scenario feature matrix before porting frontend/backend work. The f
 - `python3 scripts/run_phase_acceptance.py` includes `scenario_matrix=true`.
 - `python3 -m unittest discover -s tests` passes.
 
+## Phase 2.1-2.6 Scope: Complete Uploaded Plan Through Step 6
+
+The uploaded plan's six implementation steps are now treated as one L2 feature sequence, but each step must remain independently testable. This phase must not redefine completion around the existing matrix skeleton.
+
+### Step 2: Split corpus data directory
+
+- Create `tw_law_mcp/data/sources/` packs:
+  - `tw-central-interior-core.json`
+  - `tw-central-fire-equipment.json`
+  - `tw-fire-compartment-and-egress.json`
+  - `tw-material-evidence.json`
+  - `ntpc-interior-procedure.json`
+- Create `tw_law_mcp/data/registries/`:
+  - `jurisdictions.json`
+  - `procedure_stages.json`
+  - `domain_tags.json`
+- Create `tw_law_mcp/data/fixtures/`:
+  - `tw_scenario_queries.json`
+  - `ntpc_synthetic_cases.json`
+- Keep legacy `p0_law_corpus.json` readable during migration.
+
+### Step 3: Source adapter contracts
+
+- Add deterministic local adapter outputs for MOJ, ABRI/CPAMI reference records, NTPC law portal, and NTPC e-service references.
+- Normalize every record into `source_unit` with authority, license, crawl policy, checksum, jurisdiction, case type, procedure stage, and domain tags.
+- No live web fetch is required in this phase; adapter output is source-bound metadata and fixture text only.
+
+### Step 4: Scenario MCP tools
+
+- Implement:
+  - `resolve_tw_scenario`
+  - `check_fire_equipment_routing`
+  - `check_fire_compartment_evidence`
+  - `check_material_evidence`
+  - `build_ntpc_submission_packet`
+  - `plan_web_search_fallback`
+- Tools must fail closed for professional judgment, material authenticity, fire design, legal compliance, and corpus misses.
+
+### Step 5: Evaluation hardening
+
+- `run_scenario_matrix_acceptance` must verify actual corpus pack files, actual MCP tool handlers, artifact contracts, gates, source-unit coverage, and fixture query counts.
+- MVP categories must each have at least 5 scenario queries.
+
+### Step 6: Two-stage contractor flow
+
+- Add deterministic two-stage flow skeleton:
+  - Stage 1 analysis: masked document + metadata -> parsed document, atomic items, scenario routing, packet, gates, client questions.
+  - Stage 2 response: analysis artifacts + human answers -> response draft, professional review packet, correction summary, gate metadata.
+- The flow must not use California ADU prompts, compliance assurance language, or web search as authority.
+
+### Phase 2.1-2.6 Verification
+
+- RED tests fail before implementation for missing split data, missing scenario tools, weak matrix acceptance, and missing two-stage flow.
+- Targeted tests pass after implementation.
+- `python3 scripts/run_scenario_matrix_acceptance.py` reports `all_passed=true` and at least 5 queries per MVP category.
+- `python3 scripts/run_phase_acceptance.py` includes scenario matrix and two-stage flow gates.
+- `python3 -m unittest discover -s tests` passes.
+
 ## Deferred
 
 - Full law corpus ingestion.
