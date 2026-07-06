@@ -544,9 +544,20 @@ class TwLawMcpServer:
         name = params.get("name")
         arguments = params.get("arguments", {})
         handler = self.handlers.get(name)
-        if handler is None:
-            raise ValueError(f"unknown tool: {name}")
-        result = handler(**arguments)
+        try:
+            if handler is None:
+                raise ValueError(f"unknown tool: {name}")
+            result = handler(**arguments)
+        except Exception as exc:
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": str(exc),
+                    }
+                ],
+                "isError": True,
+            }
         return {
             "content": [
                 {
@@ -573,7 +584,12 @@ def main() -> None:
     for line in sys.stdin:
         if not line.strip():
             continue
-        response = server.handle(json.loads(line))
+        try:
+            request = json.loads(line)
+        except json.JSONDecodeError:
+            response = server._error(None, -32700, "Parse error")
+        else:
+            response = server.handle(request)
         if response is None:
             continue
         sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")

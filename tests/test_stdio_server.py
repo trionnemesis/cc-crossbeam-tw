@@ -11,6 +11,83 @@ def send_json_rpc(process, payload):
 
 
 class StdioServerTests(unittest.TestCase):
+    def test_server_survives_malformed_json_line(self):
+        process = subprocess.Popen(
+            [sys.executable, "scripts/tw_law_mcp_stdio.py"],
+            cwd=".",
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        try:
+            process.stdin.write("not json\n")
+            process.stdin.flush()
+            parse_error = json.loads(process.stdout.readline())
+
+            initialize = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "unittest", "version": "0.1.0"},
+                    },
+                },
+            )
+
+            self.assertEqual(parse_error["error"]["code"], -32700)
+            self.assertEqual(initialize["result"]["serverInfo"]["name"], "tw-law-mcp")
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            process.stdin.close()
+            process.stdout.close()
+            process.stderr.close()
+
+    def test_tool_call_exception_returns_mcp_tool_error_result(self):
+        process = subprocess.Popen(
+            [sys.executable, "scripts/tw_law_mcp_stdio.py"],
+            cwd=".",
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        try:
+            response = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "verify_citation",
+                        "arguments": {
+                            "law_name": "建築物室內裝修管理辦法",
+                            "article_no": "23",
+                            "unexpected": True,
+                        },
+                    },
+                },
+            )
+
+            self.assertNotIn("error", response)
+            self.assertTrue(response["result"]["isError"])
+            self.assertEqual(response["result"]["content"][0]["type"], "text")
+            self.assertIn("unexpected", response["result"]["content"][0]["text"])
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            process.stdin.close()
+            process.stdout.close()
+            process.stderr.close()
+
     def test_server_lists_and_calls_v1_tools(self):
         process = subprocess.Popen(
             [sys.executable, "scripts/tw_law_mcp_stdio.py"],
