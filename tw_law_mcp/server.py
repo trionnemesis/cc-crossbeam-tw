@@ -182,6 +182,14 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "run_scenario_matrix_acceptance",
+        "description": "Verify Taiwan scenario matrix fixtures declare corpus packs, tool boundaries, artifacts, gates, and HITL policies.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
         "name": "resolve_procedure_requirements",
         "description": "Return stage-specific New Taipei interior renovation procedure requirements.",
         "inputSchema": {
@@ -352,6 +360,7 @@ class TwLawMcpServer:
             "run_jurisdiction_registry_acceptance": self.repo.run_jurisdiction_registry_acceptance,
             "run_packaging_acceptance": self.repo.run_packaging_acceptance,
             "run_phase_acceptance": self.repo.run_phase_acceptance,
+            "run_scenario_matrix_acceptance": self.repo.run_scenario_matrix_acceptance,
             "resolve_procedure_requirements": self.repo.resolve_procedure_requirements,
             "resolve_procedure_stage_confidence": self.repo.resolve_procedure_stage_confidence,
             "get_fixture_baseline_status": self.repo.get_fixture_baseline_status,

@@ -51,9 +51,9 @@ L2 feature with L5 long-task overlay.
 - [x] Add repeatable jurisdiction registry acceptance for enabled coverage and disabled fail-closed stubs.
 - [x] Add repeatable packaging acceptance for standalone MCP strategy and thin Codex/Claude wrappers.
 - [x] Add aggregate Phase acceptance gate covering all explicit roadmap requirements.
-- [ ] Add Taiwan scenario feature matrix documentation.
-- [ ] Add scenario matrix fixture and acceptance gate.
-- [ ] Expose scenario matrix acceptance through script, aggregate phase gate, and MCP tool list.
+- [x] Add Taiwan scenario feature matrix documentation.
+- [x] Add scenario matrix fixture and acceptance gate.
+- [x] Expose scenario matrix acceptance through script, aggregate phase gate, and MCP tool list.
 
 ## Current Evidence
 
@@ -77,6 +77,11 @@ L2 feature with L5 long-task overlay.
 - Latest packaging acceptance smoke: `python3 scripts/run_packaging_acceptance.py` passed with `all_passed=true` and `decision=standalone_mcp_server_first`.
 - Latest fixture pipeline smoke: `python3 scripts/run_fixture_pipeline.py` passed with `all_cases_passed=true`, 12 cases, and 84 atomic items.
 - Current branch for scenario matrix work: `codex/tw-scenario-matrix`.
+- Latest scenario matrix TDD red: targeted tests failed before implementation because `run_scenario_matrix_acceptance` and the MCP tool were missing.
+- Latest scenario matrix targeted green: `python3 -m unittest tests.test_law_repository.LawRepositoryTests.test_scenario_matrix_acceptance_covers_mvp_categories tests.test_law_repository.LawRepositoryTests.test_phase_acceptance_covers_all_roadmap_gates tests.test_stdio_server.StdioServerTests.test_server_lists_and_calls_v1_tools` passed, 3 tests.
+- Latest scenario matrix smoke: `python3 scripts/run_scenario_matrix_acceptance.py` passed with `all_passed=true`, 7 queries, and no missing MVP categories.
+- Latest aggregate Phase acceptance smoke: `python3 scripts/run_phase_acceptance.py` passed with `all_passed=true` and `scenario_matrix=true`.
+- Latest full unit test run: `python3 -m unittest discover -s tests` passed, 28 tests.
 
 ## Blockers / External Inputs
 

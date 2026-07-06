@@ -32,7 +32,8 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 - `list_jurisdictions`：列出 jurisdiction registry；新北市以外 entries 目前 fail-closed。
 - `run_jurisdiction_registry_acceptance`：驗證 enabled jurisdiction 有 law pack/stage，disabled jurisdiction 維持 fail-closed。
 - `run_packaging_acceptance`：驗證 Codex/Claude Code wrapper 指向同一 standalone MCP server，且 ADR 決策完整。
-- `run_phase_acceptance`：聚合驗收 P0 source、procedure/HITL、G2 fixture、metadata、jurisdiction、packaging 六個 roadmap gates。
+- `run_scenario_matrix_acceptance`：驗證台灣場景矩陣 fixture 已宣告 corpus packs、tool boundary、artifact、gate、HITL 與禁語政策。
+- `run_phase_acceptance`：聚合驗收 P0 source、procedure/HITL、G2 fixture、metadata、jurisdiction、packaging、scenario matrix 七個 roadmap gates。
 - `resolve_procedure_requirements`：回傳室內裝修流程需求摘要。
 - `resolve_procedure_stage_confidence`：依文件文字與檔案 metadata 判定 `procedure_stage` 信心分數；低信心進 HITL。
 - `build_law_snapshot`：依 `{jurisdiction, case_type, procedure_stage, as_of_date}` 產生帶有 `source_policy_state`、`source_authority_rank`、`source_license_status` 的版本化法規快照。
@@ -64,7 +65,7 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 - Permit Checklist Generator → 送審前文件檢核清單。
 - City Pre-Screening → 後續城市端初步完整性檢查。
 
-詳細 mapping 文件見 [`docs/cc-crossbeam-feature-matrix.md`](docs/cc-crossbeam-feature-matrix.md)。
+詳細 mapping 文件見 [`docs/cc-crossbeam-feature-matrix.md`](docs/cc-crossbeam-feature-matrix.md)。台灣實務場景主索引見 [`docs/tw-scenario-feature-matrix.md`](docs/tw-scenario-feature-matrix.md)。
 
 ## 專案結構
 
@@ -76,13 +77,18 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 │   ├── index.html
 │   ├── styles.css
 │   ├── ADR-0001-packaging-strategy.md
-│   └── cc-crossbeam-feature-matrix.md
+│   ├── cc-crossbeam-feature-matrix.md
+│   └── tw-scenario-feature-matrix.md
+├── fixtures/
+│   ├── g2_baseline.json
+│   └── tw_scenario_queries.json
 ├── scripts/
 │   ├── build_law_snapshot.py
 │   ├── run_fixture_pipeline.py
 │   ├── run_jurisdiction_registry_acceptance.py
 │   ├── run_packaging_acceptance.py
 │   ├── run_phase_acceptance.py
+│   ├── run_scenario_matrix_acceptance.py
 │   ├── run_source_policy_acceptance.py
 │   └── tw_law_mcp_stdio.py
 ├── tests/
@@ -129,6 +135,12 @@ python3 scripts/run_jurisdiction_registry_acceptance.py
 python3 scripts/run_packaging_acceptance.py
 ```
 
+執行 Taiwan scenario matrix acceptance：
+
+```bash
+python3 scripts/run_scenario_matrix_acceptance.py
+```
+
 執行全部 Phase acceptance：
 
 ```bash
@@ -153,6 +165,7 @@ python3 -m unittest discover -s tests
 - P0 source policy acceptance。
 - jurisdiction registry fail-closed acceptance。
 - packaging strategy acceptance。
+- Taiwan scenario matrix acceptance。
 - aggregate Phase acceptance。
 - procedure-stage confidence + HITL confirmation loop。
 - G2 fixture pipeline acceptance。
@@ -162,6 +175,8 @@ python3 -m unittest discover -s tests
 ## Fixture Baseline
 
 `fixtures/g2_baseline.json` 是 G2 contract baseline：12 份 synthetic de-identified cases、84 個 atomic correction items。此 baseline 用來驗證 schema、gate 與 HITL flow contract，不包含真實姓名、地址、電話、身分證字號、title block 原圖、raw PDF 或 raw drawing。真實去識別案件導入前，必須維持相同欄位與 raw/masked 分流規則。
+
+`fixtures/tw_scenario_queries.json` 是台灣場景矩陣 baseline：每題宣告 scenario category、預期 corpus packs、tool boundary、artifact、gate、HITL policy 與禁止輸出。它先驗證 contract coverage，不代表所有正式 corpus pack 已完成 ingestion。
 
 ## Phase Acceptance 狀態
 
@@ -173,5 +188,6 @@ python3 -m unittest discover -s tests
 - 圖說／申請文件 metadata-only extraction。
 - 新北市以外 jurisdiction registry fail-closed stubs。
 - Codex plugin／Claude Code plugin／獨立 MCP server 封裝策略；目前決策為 standalone MCP server first，Codex/Claude Code 只保留 thin MCP wrappers。
+- Taiwan scenario matrix：procedure、fire equipment、fire compartment、material、completion packet、response draft 六類 MVP scenario 均有 fixture coverage。
 
 Production 導入前仍需以 approved real de-identified cases 補強或替換 synthetic fixture，並建立 live source ingestion/refresh workflow；目前 acceptance 驗證的是 contract 與 fail-closed 邊界。

@@ -139,6 +139,7 @@ class LawRepositoryTests(unittest.TestCase):
                 "metadata_extraction",
                 "jurisdiction_registry",
                 "packaging_strategy",
+                "scenario_matrix",
             },
         )
         self.assertTrue(all(acceptance["gates"].values()))
@@ -150,6 +151,26 @@ class LawRepositoryTests(unittest.TestCase):
             acceptance["details"]["metadata_extraction"]["agent_input_policy"],
             "metadata_only_no_raw_drawing_or_document_content",
         )
+
+    def test_scenario_matrix_acceptance_covers_mvp_categories(self):
+        acceptance = self.repo.run_scenario_matrix_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(acceptance["failures"], [])
+        self.assertEqual(
+            set(acceptance["mvp_categories"]),
+            {
+                "procedure",
+                "fire_equipment",
+                "fire_compartment",
+                "material",
+                "completion_packet",
+                "response_draft",
+            },
+        )
+        self.assertEqual(set(acceptance["missing_mvp_categories"]), set())
+        self.assertGreaterEqual(acceptance["query_count"], 6)
+        self.assertTrue(all(result["passed"] for result in acceptance["scenario_results"]))
 
     def test_resolve_procedure_requirements_is_stage_specific(self):
         drawing_review = self.repo.resolve_procedure_requirements("圖說審核", "ntpc")

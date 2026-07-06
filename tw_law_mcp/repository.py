@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 DATA_PATH = Path(__file__).with_name("data") / "p0_law_corpus.json"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_BASELINE_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "g2_baseline.json"
+SCENARIO_QUERIES_PATH = REPO_ROOT / "fixtures" / "tw_scenario_queries.json"
 CODEX_MCP_CONFIG_PATH = REPO_ROOT / ".codex" / "config.toml"
 CLAUDE_MCP_CONFIG_PATH = REPO_ROOT / ".mcp.json"
 PACKAGING_ADR_PATH = REPO_ROOT / "docs" / "ADR-0001-packaging-strategy.md"
@@ -601,6 +602,7 @@ class LawRepository:
         fixture_pipeline = self.run_fixture_pipeline_acceptance()
         jurisdiction_registry = self.run_jurisdiction_registry_acceptance()
         packaging = self.run_packaging_acceptance()
+        scenario_matrix = self.run_scenario_matrix_acceptance()
         procedure_hitl = self._run_procedure_hitl_acceptance()
         metadata_extraction = self._run_metadata_extraction_acceptance()
         gates = {
@@ -610,6 +612,7 @@ class LawRepository:
             "metadata_extraction": metadata_extraction["all_passed"],
             "jurisdiction_registry": jurisdiction_registry["all_passed"],
             "packaging_strategy": packaging["all_passed"],
+            "scenario_matrix": scenario_matrix["all_passed"],
         }
         return {
             "all_passed": all(gates.values()),
@@ -628,7 +631,136 @@ class LawRepository:
                 "metadata_extraction": metadata_extraction,
                 "jurisdiction_registry": jurisdiction_registry,
                 "packaging_strategy": packaging,
+                "scenario_matrix": scenario_matrix,
             },
+        }
+
+    def run_scenario_matrix_acceptance(self) -> dict[str, Any]:
+        matrix = self._load_scenario_queries()
+        queries = matrix.get("queries", [])
+        mvp_categories = matrix.get("mvp_categories", [])
+        seen_categories = sorted(
+            {query.get("category") for query in queries if query.get("category")}
+        )
+        missing_mvp_categories = sorted(set(mvp_categories) - set(seen_categories))
+        failures = []
+        scenario_results = []
+        required_fields = {
+            "scenario_id",
+            "category",
+            "query",
+            "expected_corpus_packs",
+            "expected_tool",
+            "expected_artifact",
+            "expected_gate",
+            "expected_output_type",
+            "human_review_required",
+            "prohibited_outputs",
+        }
+
+        if not queries:
+            failures.append(
+                {
+                    "gate": "scenario_fixture_exists",
+                    "reason": "missing_queries",
+                    "details": str(SCENARIO_QUERIES_PATH),
+                }
+            )
+
+        for category in missing_mvp_categories:
+            failures.append(
+                {
+                    "gate": "mvp_category_coverage",
+                    "reason": "missing_mvp_category",
+                    "details": category,
+                }
+            )
+
+        for query in queries:
+            scenario_id = query.get("scenario_id", "<missing>")
+            scenario_failures = []
+            missing_fields = sorted(
+                field
+                for field in required_fields
+                if self._missing_scenario_value(query.get(field))
+            )
+            if missing_fields:
+                scenario_failures.append(
+                    {
+                        "gate": "scenario_contract_fields",
+                        "reason": "missing_fields",
+                        "details": missing_fields,
+                    }
+                )
+
+            corpus_packs = query.get("expected_corpus_packs")
+            if not isinstance(corpus_packs, list) or not corpus_packs:
+                scenario_failures.append(
+                    {
+                        "gate": "source_pack_contract",
+                        "reason": "missing_expected_corpus_packs",
+                        "details": corpus_packs,
+                    }
+                )
+
+            prohibited_outputs = query.get("prohibited_outputs")
+            if not isinstance(prohibited_outputs, list) or not prohibited_outputs:
+                scenario_failures.append(
+                    {
+                        "gate": "prohibited_output_policy",
+                        "reason": "missing_prohibited_outputs",
+                        "details": prohibited_outputs,
+                    }
+                )
+
+            if query.get("risk_requires_hitl") and query.get("human_review_required") is not True:
+                scenario_failures.append(
+                    {
+                        "gate": "risk_hitl_policy",
+                        "reason": "risk_without_hitl",
+                        "details": query.get("category"),
+                    }
+                )
+
+            if (
+                query.get("category") == "web_fallback"
+                and query.get("expected_output_type") != "web_search_fallback_plan"
+            ):
+                scenario_failures.append(
+                    {
+                        "gate": "fallback_policy",
+                        "reason": "fallback_must_return_plan_only",
+                        "details": query.get("expected_output_type"),
+                    }
+                )
+
+            scenario_results.append(
+                {
+                    "scenario_id": scenario_id,
+                    "category": query.get("category"),
+                    "expected_tool": query.get("expected_tool"),
+                    "expected_artifact": query.get("expected_artifact"),
+                    "expected_gate": query.get("expected_gate"),
+                    "expected_corpus_packs": query.get("expected_corpus_packs", []),
+                    "human_review_required": query.get("human_review_required"),
+                    "passed": not scenario_failures,
+                    "failures": scenario_failures,
+                }
+            )
+            failures.extend(
+                {"scenario_id": scenario_id, **failure}
+                for failure in scenario_failures
+            )
+
+        return {
+            "matrix_id": matrix.get("matrix_id"),
+            "all_passed": not failures,
+            "query_count": len(queries),
+            "mvp_categories": mvp_categories,
+            "categories": seen_categories,
+            "missing_mvp_categories": missing_mvp_categories,
+            "scenario_results": scenario_results,
+            "failures": failures,
         }
 
     def resolve_procedure_stage_confidence(
@@ -848,6 +980,20 @@ class LawRepository:
             "fixture_baseline",
             {"target_case_count": 12, "target_atomic_item_count": 80, "cases": []},
         )
+
+    def _load_scenario_queries(self) -> dict[str, Any]:
+        if SCENARIO_QUERIES_PATH.exists():
+            with SCENARIO_QUERIES_PATH.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
+        return {
+            "matrix_id": "missing",
+            "mvp_categories": [],
+            "queries": [],
+        }
+
+    @staticmethod
+    def _missing_scenario_value(value: Any) -> bool:
+        return value is None or value == "" or value == []
 
     def _acceptance_gate_item(self, item: dict[str, Any]) -> dict[str, Any]:
         article_meta = self._find_article(item.get("law_name"), item.get("article"))

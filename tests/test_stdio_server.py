@@ -165,6 +165,18 @@ class StdioServerTests(unittest.TestCase):
                     },
                 },
             )
+            scenario_acceptance = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 101,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "run_scenario_matrix_acceptance",
+                        "arguments": {},
+                    },
+                },
+            )
             stage_confidence = send_json_rpc(
                 process,
                 {
@@ -259,6 +271,7 @@ class StdioServerTests(unittest.TestCase):
             self.assertIn("run_jurisdiction_registry_acceptance", tool_names)
             self.assertIn("run_packaging_acceptance", tool_names)
             self.assertIn("run_phase_acceptance", tool_names)
+            self.assertIn("run_scenario_matrix_acceptance", tool_names)
             self.assertIn("build_law_snapshot", tool_names)
             self.assertIn("check_claim_support", tool_names)
             self.assertIn("get_local_rule", tool_names)
@@ -308,6 +321,12 @@ class StdioServerTests(unittest.TestCase):
             phase_payload = json.loads(phase_acceptance["result"]["content"][0]["text"])
             self.assertTrue(phase_payload["all_passed"])
             self.assertTrue(all(phase_payload["gates"].values()))
+            self.assertIn("scenario_matrix", phase_payload["gates"])
+
+            scenario_payload = json.loads(scenario_acceptance["result"]["content"][0]["text"])
+            self.assertTrue(scenario_payload["all_passed"])
+            self.assertEqual(scenario_payload["failures"], [])
+            self.assertGreaterEqual(scenario_payload["query_count"], 6)
 
             stage_payload = json.loads(stage_confidence["result"]["content"][0]["text"])
             self.assertEqual(stage_payload["procedure_stage"], "圖說審核")
