@@ -55,6 +55,38 @@ Do not port the original `cc-crossbeam` web upload path yet. Add a governed pipe
 - Fixture manifest reports G2 incomplete until `case_count >= 12` and `atomic_item_count >= 80`.
 - Disabled jurisdiction stubs fail closed for active procedures.
 
+## Phase 2 Scenario Matrix Scope
+
+Add a Taiwan scenario feature matrix before porting frontend/backend work. The first implementation slice should be documentation plus a deterministic acceptance gate, not a full corpus ingestion pipeline.
+
+### Option A: Port scenario tools directly
+
+- Faster MCP surface growth.
+- Risks adding behavior before scenario coverage, source packs, artifacts, and gates are traceable.
+
+### Option B: Add matrix fixture and acceptance first
+
+- Slower visible tool growth.
+- Produces a stable contract for later tools: scenario category, corpus packs, tool boundary, artifact contract, gate, and fixture query.
+- Keeps future `resolve_tw_scenario` and domain-specific checks tied to a repeatable acceptance report.
+
+**Recommendation: Option B** — The pasted plan identifies the feature matrix as the next executable index. The smallest correct slice is to document the matrix, add scenario fixtures, and add a repeatable `run_scenario_matrix_acceptance` gate before expanding tool behavior.
+
+### Phase 2.0 Scope
+
+- Add `docs/tw-scenario-feature-matrix.md`.
+- Add `fixtures/tw_scenario_queries.json`.
+- Add `run_scenario_matrix_acceptance` with per-scenario corpus/tool/artifact/gate/fixture checks.
+- Include the scenario matrix gate in `run_phase_acceptance`.
+
+### Phase 2.0 Verification
+
+- Scenario matrix test fails before implementation.
+- Scenario matrix test passes after implementation.
+- `python3 scripts/run_scenario_matrix_acceptance.py` reports `all_passed=true`.
+- `python3 scripts/run_phase_acceptance.py` includes `scenario_matrix=true`.
+- `python3 -m unittest discover -s tests` passes.
+
 ## Deferred
 
 - Full law corpus ingestion.

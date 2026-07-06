@@ -29,6 +29,7 @@ L2 feature with L5 long-task overlay.
 2. Keep raw drawings out of Codex/agent prompts.
 3. Add contracts and deterministic checks before adding host-specific packaging.
 4. Treat G2 as incomplete until 12 de-identified cases and 80 atomic items are actually present and verifiable.
+5. For the Taiwan scenario matrix slice, add documentation and a repeatable acceptance gate before adding broader tool behavior.
 
 ## Progress
 
@@ -50,6 +51,9 @@ L2 feature with L5 long-task overlay.
 - [x] Add repeatable jurisdiction registry acceptance for enabled coverage and disabled fail-closed stubs.
 - [x] Add repeatable packaging acceptance for standalone MCP strategy and thin Codex/Claude wrappers.
 - [x] Add aggregate Phase acceptance gate covering all explicit roadmap requirements.
+- [ ] Add Taiwan scenario feature matrix documentation.
+- [ ] Add scenario matrix fixture and acceptance gate.
+- [ ] Expose scenario matrix acceptance through script, aggregate phase gate, and MCP tool list.
 
 ## Current Evidence
 
@@ -72,6 +76,7 @@ L2 feature with L5 long-task overlay.
 - Latest jurisdiction registry acceptance smoke: `python3 scripts/run_jurisdiction_registry_acceptance.py` passed with `all_passed=true`, 1 enabled jurisdiction, and 2 disabled jurisdictions.
 - Latest packaging acceptance smoke: `python3 scripts/run_packaging_acceptance.py` passed with `all_passed=true` and `decision=standalone_mcp_server_first`.
 - Latest fixture pipeline smoke: `python3 scripts/run_fixture_pipeline.py` passed with `all_cases_passed=true`, 12 cases, and 84 atomic items.
+- Current branch for scenario matrix work: `codex/tw-scenario-matrix`.
 
 ## Blockers / External Inputs
 
