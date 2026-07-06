@@ -341,6 +341,13 @@ pre code {
   color: var(--muted);
 }
 
+.completion-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0 0 20px;
+}
+
 .note {
   border-left: 4px solid var(--gold);
 }
@@ -363,6 +370,7 @@ pre code {
   .hero-grid,
   .grid,
   .value-grid,
+  .completion-grid,
   .status-strip,
   .split {
     grid-template-columns: minmax(0, 1fr);

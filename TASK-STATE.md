@@ -59,6 +59,7 @@ L2 feature with L5 long-task overlay.
 - [x] Implement scenario MCP tools for routing, fire equipment, fire compartment, material evidence, NTPC packet, and web fallback.
 - [x] Harden scenario matrix acceptance to verify real packs/tools/artifacts/gates and at least 5 MVP queries per category.
 - [x] Add two-stage contractor flow skeleton through analysis and response artifacts.
+- [x] Publish v0.4.0 status for mainline completion of groups 1-6 and Phase 2.1-2.6 / Step 6.
 
 ## Current Evidence
 
@@ -66,32 +67,33 @@ L2 feature with L5 long-task overlay.
 - `run_source_policy_acceptance` verifies all P0 article sources have policy evidence and all official source classes are covered by comparisons.
 - P0 corpus source URL correction: `建築物室內裝修管理辦法` now uses MOJ `D0070148` and article 23 for application drawing documents.
 - `resolve_procedure_stage_confidence` returns confidence and routes ambiguous/low-confidence input to HITL.
-- `get_fixture_baseline_status` reports G2 complete for the synthetic de-identified baseline: 12 cases and 84 atomic items.
+- `get_fixture_baseline_status` reports the synthetic de-identified G2 contract baseline: 12 cases and 84 atomic items; unsupported fixture claims fail closed through `claim_supported`.
 - `extract_file_metadata` returns metadata-only agent policy and never allows raw drawing/document content.
 - `list_jurisdictions` exposes New Taipei as enabled and Taipei/Taoyuan as disabled fail-closed stubs.
 - `run_jurisdiction_registry_acceptance` verifies the enabled New Taipei registry has law packs/stages and non-New-Taipei entries fail closed.
 - `run_packaging_acceptance` verifies `.codex/config.toml`, `.mcp.json`, the stdio entrypoint, and ADR-0001 preserve standalone MCP-first packaging.
-- `run_phase_acceptance` aggregates P0 source policy, procedure/HITL, G2 fixture, metadata extraction, jurisdiction registry, and packaging strategy gates.
+- `run_phase_acceptance` aggregates P0 source policy, procedure/HITL, G2 fixture, metadata extraction, jurisdiction registry, packaging strategy, scenario matrix, split data layout, source adapters, and two-stage flow gates.
 - `parse_masked_document`, `normalize_atomic_correction_items`, `build_sheet_manifest`, and `build_hitl_confirmation_packet` create Phase 2 contract artifacts from masked text and metadata only.
 - `apply_hitl_confirmations` applies answered `client_questions` back into `procedure_stage_signal` and atomic correction items, while unknown/missing/invalid answers remain incomplete and require human review.
 - `run_fixture_pipeline_acceptance` reports all 12 synthetic cases and 84 atomic correction items pass deterministic snapshot, sheet manifest, HITL packet, and audit-gate acceptance.
-- Latest verification: `python3 -m unittest discover -s tests` passed, 27 tests.
-- Latest aggregate Phase acceptance smoke: `python3 scripts/run_phase_acceptance.py` passed with all six gates true.
+- Latest verification: `python3 -m unittest discover -s tests` passed, 42 tests.
+- Latest aggregate Phase acceptance smoke: `python3 scripts/run_phase_acceptance.py` returned `all_passed=false` because `g2_fixture_baseline=false`; all other aggregate gates passed. This is the expected fail-closed trust boundary until approved real de-identified cases support production claims.
 - Latest source policy acceptance smoke: `python3 scripts/run_source_policy_acceptance.py` passed with `all_passed=true`, 3 article sources, and 2 source classes.
 - Latest jurisdiction registry acceptance smoke: `python3 scripts/run_jurisdiction_registry_acceptance.py` passed with `all_passed=true`, 1 enabled jurisdiction, and 2 disabled jurisdictions.
 - Latest packaging acceptance smoke: `python3 scripts/run_packaging_acceptance.py` passed with `all_passed=true` and `decision=standalone_mcp_server_first`.
 - Latest fixture pipeline smoke: `python3 scripts/run_fixture_pipeline.py` passed with `all_cases_passed=true`, 12 cases, and 84 atomic items.
-- Current branch for scenario matrix work: `codex/tw-scenario-matrix`.
+- Current branch: `main`.
 - Latest scenario matrix TDD red: targeted tests failed before implementation because `run_scenario_matrix_acceptance` and the MCP tool were missing.
 - Latest scenario matrix targeted green: `python3 -m unittest tests.test_law_repository.LawRepositoryTests.test_scenario_matrix_acceptance_covers_mvp_categories tests.test_law_repository.LawRepositoryTests.test_phase_acceptance_covers_all_roadmap_gates tests.test_stdio_server.StdioServerTests.test_server_lists_and_calls_v1_tools` passed, 3 tests.
 - Latest scenario matrix smoke: `python3 scripts/run_scenario_matrix_acceptance.py` passed with `all_passed=true`, 7 queries, and no missing MVP categories.
-- Latest aggregate Phase acceptance smoke: `python3 scripts/run_phase_acceptance.py` passed with `all_passed=true` and `scenario_matrix=true`.
-- Latest full unit test run: `python3 -m unittest discover -s tests` passed, 28 tests.
-- Current branch for completing uploaded plan through step 6: `codex/complete-plan-step6`.
+- Latest aggregate Phase acceptance smoke before trust-boundary hardening: `python3 scripts/run_phase_acceptance.py` passed with `all_passed=true` and `scenario_matrix=true`.
+- Latest full unit test run before Step 6 completion: `python3 -m unittest discover -s tests` passed, 28 tests.
+- Step 6 completion branch has been merged into `main`.
 - Phase 2.1-2.6 scope is now recorded in `.plans/tw-law-mcp.md`; completion requires data split, source-unit adapters, scenario tools, hardened evaluation, and two-stage flow.
 - Latest Phase 2.1-2.6 targeted TDD red: six targeted tests failed for missing data layout, source units, scenario tools, two-stage flow, query count, and MCP exposure.
 - Latest Phase 2.1-2.6 targeted green: six targeted tests passed after implementing split data, source adapters, tools, hardened matrix, and two-stage flow.
 - Latest full unit test run during Phase 2.1-2.6: `python3 -m unittest discover -s tests` passed, 32 tests.
+- Latest v0.4.0 mainline status update: README and GitHub Pages now state groups 1-6 plus Phase 2.1-2.6 / Step 6 are complete, while preserving the production G2 blocker.
 
 ## Blockers / External Inputs
 

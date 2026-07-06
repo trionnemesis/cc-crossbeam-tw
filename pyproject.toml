@@ -1,6 +1,6 @@
 [project]
 name = "cc-crossbeam-tw"
-version = "0.3.0"
+version = "0.4.0"
 description = "Taiwan interior renovation auditability MCP server prototype"
 requires-python = ">=3.10,<4.0"
 dependencies = []

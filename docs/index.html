@@ -23,6 +23,7 @@
             <a class="button" href="#value">看能做什麼</a>
             <a class="button secondary" href="#ask">提問範例</a>
             <a class="button secondary" href="#start">開始設定</a>
+            <a class="button secondary" href="#status">目前狀態</a>
           </div>
         </div>
         <div class="workflow-visual" aria-label="室內裝修文件流程">
@@ -206,7 +207,7 @@ cd cc-crossbeam-tw</code></pre>
               <div class="step-number">3</div>
               <div>
                 <h3>先跑驗收</h3>
-                <p>確認本機工具、fixtures、source adapters、scenario matrix 與 two-stage flow 都能重跑。</p>
+                <p>確認本機工具、fixtures、source adapters、scenario matrix 與 two-stage flow 都能重跑；aggregate trust gate 會保留 G2 fail-closed 狀態。</p>
                 <pre><code>python3 scripts/run_phase_acceptance.py</code></pre>
               </div>
             </article>
@@ -214,13 +215,13 @@ cd cc-crossbeam-tw</code></pre>
         </div>
       </section>
 
-      <section>
+      <section id="status">
         <div class="section-inner">
           <h2>目前原型狀態</h2>
           <div class="status-strip">
             <div>
               <strong>版本</strong>
-              <span>0.3.0 prototype</span>
+              <span>0.4.0 prototype</span>
             </div>
             <div>
               <strong>首發地區</strong>
@@ -232,11 +233,37 @@ cd cc-crossbeam-tw</code></pre>
             </div>
             <div>
               <strong>完成階段</strong>
-              <span>Phase 2.1-2.6 / Step 6</span>
+              <span>1~6 組 + Phase 2.1-2.6 / Step 6</span>
             </div>
           </div>
+          <div class="completion-grid" aria-label="主線完成項目">
+            <article class="card">
+              <h3>1. Source policy</h3>
+              <p>P0 法規來源、authority rank、license/update policy 與 fallback comparison。</p>
+            </article>
+            <article class="card">
+              <h3>2. Procedure + HITL</h3>
+              <p>程序階段信心分數、低信心分流與人工確認 loop。</p>
+            </article>
+            <article class="card">
+              <h3>3. G2 fixture contract</h3>
+              <p>12 份 synthetic de-identified cases、84 個 atomic correction items；unsupported claims fail closed。</p>
+            </article>
+            <article class="card">
+              <h3>4. Metadata extraction</h3>
+              <p>metadata-only drawing/document policy、sheet manifest 與 raw content boundary。</p>
+            </article>
+            <article class="card">
+              <h3>5. Jurisdiction registry</h3>
+              <p>新北市 enabled；台北、桃園 stubs fail closed，不主動作答。</p>
+            </article>
+            <article class="card">
+              <h3>6. MCP packaging</h3>
+              <p>Standalone MCP server first，Codex 與 Claude Code 維持 thin wrappers。</p>
+            </article>
+          </div>
           <p class="section-lead">
-            目前使用 P0 fixture corpus 與 synthetic de-identified cases 驗證流程契約。Production 導入前仍需 approved real de-identified cases 與 live official-source ingestion/refresh workflow。新北市以外 jurisdiction 已預留 registry，但目前 fail closed。
+            主線已完成 1~6 組開發，並完成 Phase 2.1-2.6 / Step 6 的 data layout、source adapters、scenario tools、hardened scenario matrix 與 two-stage contractor flow skeleton。Production 導入前仍需 approved real de-identified cases 與 live official-source ingestion/refresh workflow；G2 synthetic baseline 只驗證 schema、gate 與 HITL contract，不支撐真實案件 claim。
           </p>
         </div>
       </section>

@@ -86,15 +86,16 @@ python3 scripts/tw_law_mcp_stdio.py
 
 - Codex App：專案設定在 `.codex/config.toml`。
 - Claude Code：專案設定在 `.mcp.json`。
-- 啟動後建議先執行 `run_phase_acceptance`，確認本機工具、fixtures 與 acceptance gates 正常。
+- 啟動後建議先執行 `python3 -m unittest discover -s tests` 與目標 acceptance script。`run_phase_acceptance` 是 aggregate trust gate；在 production G2 仍未接入 approved real de-identified cases 前，會對 unsupported synthetic fixture claims fail closed。
 
 ## 目前狀態
 
-- 版本：`0.3.0` prototype。
+- 版本：`0.4.0` prototype。
 - 首發地區：新北市。
 - 首發案型：室內裝修。
-- 已完成到 Phase 2.1-2.6 / Step 6：split data layout、source adapter contracts、scenario MCP tools、hardened scenario matrix evaluation、two-stage contractor flow skeleton。
-- 目前使用 P0 fixture corpus 與 synthetic de-identified cases 驗證流程契約；production 導入前仍需 approved real de-identified cases 與 live official-source ingestion/refresh workflow。
+- 主線已完成 1~6 組開發：P0 source-policy、procedure/HITL、G2 synthetic fixture contract、metadata extraction、jurisdiction registry、standalone MCP packaging。
+- Phase 2.1-2.6 / Step 6 已完成：split data layout、source adapter contracts、scenario MCP tools、hardened scenario matrix evaluation、two-stage contractor flow skeleton。
+- 目前使用 P0 fixture corpus 與 synthetic de-identified cases 驗證流程契約；production 導入前仍需 approved real de-identified cases 與 live official-source ingestion/refresh workflow。G2 synthetic baseline 只能證明 schema、gate 與 HITL contract，不能支撐真實案件 claim。
 - 新北市以外 jurisdiction 已預留 registry，但目前 fail closed，不主動作答。
 
 本專案的產品流程概念源自 [`cc-crossbeam`](https://github.com/trionnemesis/cc-crossbeam) 的文件審查與補正回覆流程；只借流程，不搬美國 ADU 法規。對照表見 [`docs/cc-crossbeam-feature-matrix.md`](docs/cc-crossbeam-feature-matrix.md)。
@@ -128,7 +129,7 @@ python3 -m unittest discover -s tests
 python3 scripts/run_phase_acceptance.py
 ```
 
-各項 acceptance script 位於 `scripts/`，涵蓋 source policy、data layout、source adapters、jurisdiction registry、packaging、scenario matrix、fixture pipeline、two-stage flow。
+各項 acceptance script 位於 `scripts/`，涵蓋 source policy、data layout、source adapters、jurisdiction registry、packaging、scenario matrix、fixture pipeline、two-stage flow。`run_phase_acceptance.py` 目前預期會回報 `g2_fixture_baseline=false`，因為 unsupported synthetic fixture claims 必須 fail closed。
 
 ## Fixture baseline
 

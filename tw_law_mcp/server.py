@@ -531,7 +531,7 @@ class TwLawMcpServer:
             },
             "serverInfo": {
                 "name": "tw-law-mcp",
-                "version": "0.3.0",
+                "version": "0.4.0",
             },
             "instructions": (
                 "Use these tools for Taiwan/New Taipei interior renovation auditability tasks. "
