@@ -30,11 +30,41 @@
       "crawl_policy": "snapshot_with_checksum"
     },
     {
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070109",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_update_policy": "adapter_checked",
+      "crawl_policy": "snapshot_with_checksum"
+    },
+    {
       "source_url": "https://web.law.ntpc.gov.tw/",
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
       "source_update_policy": "manual_snapshot_required",
       "crawl_policy": "official_reference_only"
+    }
+  ],
+  "local_rules": [
+    {
+      "jurisdiction": "ntpc",
+      "law_id": "ntpc-interior-renovation-review-rules",
+      "rule_name": "新北市建築物室內裝修審核及查驗作業事項規範",
+      "effective_date": "2024-01-01",
+      "amendment_date": "2024-01-01",
+      "source_url": "https://web.law.ntpc.gov.tw/",
+      "procedure_stages": [
+        "圖說審核",
+        "竣工查驗",
+        "變更使用併室內裝修竣工查驗",
+        "簡易室內裝修"
+      ],
+      "required_documents": [
+        "申請書",
+        "建築物權利證明文件",
+        "圖說/竣工圖說",
+        "簽章責任文件",
+        "消防安全設備相關文件（條件式）"
+      ]
     }
   ],
   "articles": [
@@ -51,6 +81,7 @@
       "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070149",
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
+      "source_adapter_id": "tw-moj-law-adapter",
       "text": "申請室內裝修審核時，應檢附申請書、建築物權利證明文件、前次核准使用執照平面圖或相關圖面、室內裝修圖說及其他主管機關指定文件。室內裝修圖說應由依法登記之專業設計技術人員或建築師簽章負責。"
     },
     {
@@ -66,6 +97,7 @@
       "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070109",
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
+      "source_adapter_id": "tw-moj-law-adapter",
       "text": "供公眾使用建築物之室內裝修，應申請審查許可；其管理辦法由中央主管建築機關定之。"
     },
     {
@@ -81,6 +113,7 @@
       "source_url": "https://web.law.ntpc.gov.tw/",
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
+      "source_adapter_id": "ntpc-official-portal",
       "text": "新北市建築物室內裝修審核及查驗案件，依程序分為圖說審核、竣工查驗、變更使用併室內裝修竣工查驗及簡易室內裝修。"
     }
   ],

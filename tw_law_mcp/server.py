@@ -26,6 +26,22 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "build_law_snapshot",
+        "description": "Build a versioned law snapshot for a run context and return source-bound entries.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "jurisdiction": {"type": "object"},
+                "case_type": {"type": "string"},
+                "procedure_stage": {"type": "string"},
+                "as_of_date": {"type": "string"},
+                "as_of_date_basis": {"type": "string"},
+                "user_supplied_date": {"type": "string"},
+            },
+            "required": ["jurisdiction", "case_type", "procedure_stage", "as_of_date"],
+        },
+    },
+    {
         "name": "search_law",
         "description": "Search the deterministic P0 law snapshot. Results include rank, license, source URL, and checksum.",
         "inputSchema": {
@@ -66,6 +82,47 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "check_claim_support",
+        "description": "Check whether a claim is sufficiently supported by article text for fail-closed filtering.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "article_text": {"type": "string"},
+                "claim": {"type": "string"},
+                "context": {"type": "string"},
+            },
+            "required": ["article_text", "claim"],
+        },
+    },
+    {
+        "name": "get_local_rule",
+        "description": "Get structured local-law metadata (jurisdiction + rule name + documents + policy).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "jurisdiction": {"type": "string"},
+                "rule_name": {"type": "string"},
+                "as_of_date": {"type": "string"},
+            },
+            "required": ["jurisdiction", "rule_name"],
+        },
+    },
+    {
+        "name": "detect_illegal_construction_reference",
+        "description": "Detect whether files or text only imply illegal-construction indicators for manual routing.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "text": {"type": "string"},
+            },
+            "required": ["files"],
+        },
+    },
+    {
         "name": "get_source_policy",
         "description": "Return authority rank, license status, update policy, and crawl policy for a source URL.",
         "inputSchema": {
@@ -86,6 +143,21 @@ TOOL_SCHEMAS: list[JSON] = [
             "required": ["stage", "jurisdiction"],
         },
     },
+    {
+        "name": "run_audit_gates",
+        "description": "Run deterministic audit gates (schema/citation/source/claim/redline/governance).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "correction_items": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+                "data_governance_state": {"type": "object"},
+            },
+            "required": ["correction_items"],
+        },
+    },
 ]
 
 
@@ -94,11 +166,16 @@ class TwLawMcpServer:
         self.repo = load_default_repository()
         self.handlers: dict[str, Callable[..., Any]] = {
             "list_law_packs": self.repo.list_law_packs,
+            "build_law_snapshot": self.repo.build_law_snapshot,
             "search_law": self.repo.search_law,
             "get_article": self.repo.get_article,
             "verify_citation": self.repo.verify_citation,
+            "check_claim_support": self.repo.check_claim_support,
+            "get_local_rule": self.repo.get_local_rule,
+            "detect_illegal_construction_reference": self.repo.detect_illegal_construction_reference,
             "get_source_policy": self.repo.get_source_policy,
             "resolve_procedure_requirements": self.repo.resolve_procedure_requirements,
+            "run_audit_gates": self.repo.run_audit_gates,
         }
 
     def handle(self, request: JSON) -> JSON | None:
@@ -125,7 +202,7 @@ class TwLawMcpServer:
             },
             "serverInfo": {
                 "name": "tw-law-mcp",
-                "version": "0.1.0",
+                "version": "0.3.0",
             },
             "instructions": (
                 "Use these tools for Taiwan/New Taipei interior renovation auditability tasks. "

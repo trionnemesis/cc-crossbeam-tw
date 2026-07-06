@@ -4,13 +4,13 @@
 
 本專案從 `cc-crossbeam` 的文件審查與補正回覆流程映射而來，但不直接移植美國 ADU 法規邏輯。現階段先建立 `tw-law-mcp`：一個可由 Codex、Claude Code 或其他 agent host 呼叫的 deterministic、source-bound MCP 工具，用來查詢台灣／新北市室內裝修相關的 P0 法規與程序資料。
 
-## 目前定位
+## 目前定位（v0.3 對齊）
 
 - 目標使用者：建築師、室內裝修業者、代辦人員、審查文件整理者。
 - MVP 地區：`{central: "TW", local: "ntpc"}`。
 - MVP 案型：`室內裝修`。
 - 技術形態：stdio JSON-RPC MCP subset。
-- 資料狀態：P0 fixture corpus，先用來驗證工具契約、citation policy、host integration。
+- 版本：`0.3.0`。資料狀態：P0 fixture corpus，先用來驗證正式流程工具契約（法規快照、程序分流、gates）與 host integration。
 
 ## 不是法律判斷工具
 
@@ -26,7 +26,18 @@
 - `verify_citation`：驗證 citation id 是否存在。
 - `get_source_policy`：取得引用與回答邊界規則。
 - `resolve_procedure_requirements`：回傳室內裝修流程需求摘要。
+- `build_law_snapshot`：依 `{jurisdiction, case_type, procedure_stage, as_of_date}` 產生帶有 `source_policy_state`、`source_authority_rank`、`source_license_status` 的版本化法規快照。
+- `check_claim_support`：以低信心 fail-closed 方式做 claim 與條文文字覆蓋檢核（非法律保證）。
+- `get_local_rule`：依照 `jurisdiction + rule_name` 查詢在地規範與程序欄位（含文件欄位、授權邊界）。
+- `detect_illegal_construction_reference`：偵測違建指標文字/附件存在，但只回 `present/evidence_type/handling`，不做違建認定。
+- `run_audit_gates`：七層可回溯 gate；輸出 `run_meta.gates`（含 gate 序號、retries、intercepted）與 `run_meta.human_review_required`，供後續降級流程使用。
 
+## v0.3 正式地方法規流程對齊摘要
+
+- `law_snapshot`：每次查詢綁定 `{as_of_date, as_of_date_basis, jurisdiction, case_type, procedure_stage}`，輸出 `source_policy_state`、`source_authority_rank`、`source_license_status` 與 `source_update_policy`。
+- `procedure_stage`：支援 `圖說審核`、`竣工查驗`、`變更使用併室內裝修竣工查驗`、`簡易室內裝修`，對應不同 required_documents。
+- `data_governance_state`：`run_audit_gates` 會檢核 consent、retention、raw/masked 政策、PII 偵測/遮罩與刪除/稽核旗標是否齊備。
+- `source_license_status` 與 `source_authority_rank` 已明確分離；`claim_supported` 僅供 fail-closed 降級，不作最終法規裁量。
 ## 與 upstream cc-crossbeam 的映射
 
 原始 `cc-crossbeam` 是 California ADU permit assistant。本專案採用其產品流程概念，而不是法規內容：
@@ -45,6 +56,7 @@
 ├── README.md
 ├── pyproject.toml
 ├── scripts/
+│   ├── build_law_snapshot.py
 │   └── tw_law_mcp_stdio.py
 ├── tests/
 │   ├── test_law_repository.py
@@ -63,6 +75,12 @@
 
 ```bash
 python3 scripts/tw_law_mcp_stdio.py
+```
+
+輸出法規快照：
+
+```bash
+python3 scripts/build_law_snapshot.py --procedure-stage 圖說審核 --as-of-date 2026-07-06
 ```
 
 Codex 專案 MCP 設定在 `.codex/config.toml`。
@@ -84,9 +102,9 @@ python3 -m unittest discover -s tests
 
 ## 後續路線
 
-- 匯入 versioned corpus，不再只依賴 fixture。
-- 建立 `check_claim_support`，檢查回答是否有足夠來源支撐。
-- 建立補正文件解析 schema。
+- 補齊 P0 corpus 官方文件來源授權與更新政策差異比對。
+- 導入正式 `procedure_stage` 信心分數與 HITL 確認回路。
+- 以 fixture 生成 baseline：`>=12` 份去識別化案件與 `>=80` 個 atomic correction items（G2）。
 - 加入圖說／申請文件 metadata extraction。
 - 擴充新北市以外的 jurisdiction registry。
 - 評估 Codex plugin／Claude Code plugin／獨立 MCP server 的封裝策略。

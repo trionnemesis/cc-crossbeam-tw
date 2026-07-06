@@ -10,6 +10,10 @@ Build `tw-law-mcp` as the reusable domain boundary first. Keep Codex and Claude 
 - Implement repository APIs for law pack listing, law search, article lookup, citation verification, source policy lookup, and procedure requirement lookup.
 - Implement a stdio JSON-RPC MCP server exposing those APIs as tools.
 - Add Codex and Claude Code MCP configuration files.
+- Add phase-aware versioned law snapshots (`law_snapshot`) for Taiwan formal flow.
+- Add deterministic helpers for claim-support fail-closed filtering and illegal-construction reference detection.
+- Export formal gate execution metadata (`run_meta.gates`) with per-gate status/interception/retry fields.
+- Align governance check input with v0.3 `data_governance_state` contract.
 
 ## Verification
 
@@ -19,6 +23,4 @@ Build `tw-law-mcp` as the reusable domain boundary first. Keep Codex and Claude 
 ## Deferred
 
 - Full law corpus ingestion.
-- LLM-backed `check_claim_support`.
-- Document extraction and illegal construction evidence detection.
-- Codex and Claude Code plugin packaging.
+- Full Codex and Claude Code plugin packaging.
