@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tw-law-mcp": {
+      "command": "python3",
+      "args": ["${CLAUDE_PROJECT_DIR}/scripts/tw_law_mcp_stdio.py"]
+    }
+  }
+}

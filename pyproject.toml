@@ -1,0 +1,12 @@
+[project]
+name = "cc-crossbeam-tw"
+version = "0.1.0"
+description = "Taiwan interior renovation auditability MCP server prototype"
+requires-python = ">=3.10,<4.0"
+dependencies = []
+
+[project.scripts]
+tw-law-mcp = "tw_law_mcp.server:main"
+
+[tool.unittest]
+start-dir = "tests"

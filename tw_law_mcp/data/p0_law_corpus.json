@@ -1,0 +1,148 @@
+{
+  "law_packs": [
+    {
+      "law_pack_id": "tw-ntpc-interior-renovation-p0",
+      "jurisdiction": {
+        "central": "TW",
+        "local": "ntpc"
+      },
+      "case_type": "室內裝修",
+      "procedure_stages": [
+        "圖說審核",
+        "竣工查驗",
+        "變更使用併室內裝修竣工查驗",
+        "簡易室內裝修"
+      ],
+      "laws": [
+        "建築物室內裝修管理辦法",
+        "建築法",
+        "新北市建築物室內裝修審核及查驗作業事項規範"
+      ],
+      "enabled": true
+    }
+  ],
+  "source_policies": [
+    {
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070149",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_update_policy": "adapter_checked",
+      "crawl_policy": "snapshot_with_checksum"
+    },
+    {
+      "source_url": "https://web.law.ntpc.gov.tw/",
+      "source_authority_rank": 3,
+      "source_license_status": "official_reference_only",
+      "source_update_policy": "manual_snapshot_required",
+      "crawl_policy": "official_reference_only"
+    }
+  ],
+  "articles": [
+    {
+      "law_id": "building-interior-renovation-regulations",
+      "law_name": "建築物室內裝修管理辦法",
+      "article": "33",
+      "paragraph": null,
+      "item": null,
+      "effective_date": "2024-01-01",
+      "amendment_date": "2024-01-01",
+      "hierarchy": "central",
+      "authority": "MOI",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070149",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "text": "申請室內裝修審核時，應檢附申請書、建築物權利證明文件、前次核准使用執照平面圖或相關圖面、室內裝修圖說及其他主管機關指定文件。室內裝修圖說應由依法登記之專業設計技術人員或建築師簽章負責。"
+    },
+    {
+      "law_id": "building-act",
+      "law_name": "建築法",
+      "article": "77-2",
+      "paragraph": null,
+      "item": null,
+      "effective_date": "2023-12-15",
+      "amendment_date": "2023-12-15",
+      "hierarchy": "central",
+      "authority": "MOI",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070109",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "text": "供公眾使用建築物之室內裝修，應申請審查許可；其管理辦法由中央主管建築機關定之。"
+    },
+    {
+      "law_id": "ntpc-interior-renovation-review-rules",
+      "law_name": "新北市建築物室內裝修審核及查驗作業事項規範",
+      "article": "3",
+      "paragraph": null,
+      "item": null,
+      "effective_date": "2024-01-01",
+      "amendment_date": "2024-01-01",
+      "hierarchy": "local",
+      "authority": "NTPC",
+      "source_url": "https://web.law.ntpc.gov.tw/",
+      "source_authority_rank": 3,
+      "source_license_status": "official_reference_only",
+      "text": "新北市建築物室內裝修審核及查驗案件，依程序分為圖說審核、竣工查驗、變更使用併室內裝修竣工查驗及簡易室內裝修。"
+    }
+  ],
+  "procedure_requirements": {
+    "ntpc:圖說審核": {
+      "jurisdiction": "ntpc",
+      "procedure_stage": "圖說審核",
+      "supported": true,
+      "required_documents": [
+        "申請書",
+        "建築物權利證明文件",
+        "前次核准使用執照平面圖或相關圖面",
+        "室內裝修圖說",
+        "簽章責任文件"
+      ],
+      "human_review_required": true,
+      "notes": [
+        "涉及專業簽證事項時只標記需人工確認，不輸出替代性專業結論。"
+      ]
+    },
+    "ntpc:竣工查驗": {
+      "jurisdiction": "ntpc",
+      "procedure_stage": "竣工查驗",
+      "supported": true,
+      "required_documents": [
+        "竣工查驗申請文件",
+        "竣工圖說",
+        "材料證明文件",
+        "專業人員簽章文件"
+      ],
+      "human_review_required": true,
+      "notes": [
+        "不得套用圖說審核模板。"
+      ]
+    },
+    "ntpc:變更使用併室內裝修竣工查驗": {
+      "jurisdiction": "ntpc",
+      "procedure_stage": "變更使用併室內裝修竣工查驗",
+      "supported": true,
+      "required_documents": [
+        "變更使用申請文件",
+        "室內裝修竣工圖說",
+        "消防安全設備變更相關文件或人工確認"
+      ],
+      "human_review_required": true,
+      "notes": [
+        "消防項目僅在涉及消防安全設備變更時提示。"
+      ]
+    },
+    "ntpc:簡易室內裝修": {
+      "jurisdiction": "ntpc",
+      "procedure_stage": "簡易室內裝修",
+      "supported": true,
+      "required_documents": [
+        "簡易室內裝修申請文件",
+        "簡易圖說",
+        "權利證明文件"
+      ],
+      "human_review_required": true,
+      "notes": [
+        "超出簡易室內裝修範圍時需人工確認程序階段。"
+      ]
+    }
+  }
+}
