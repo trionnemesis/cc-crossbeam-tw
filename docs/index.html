@@ -156,6 +156,32 @@ cd cc-crossbeam-tw</code></pre>
 
       <section>
         <div class="section-inner">
+          <h2>使用範例：指令與期望回答</h2>
+          <div class="steps">
+            <article class="step">
+              <div class="step-number">1</div>
+              <div>
+                <h3>先驗證工具狀態，再開始查詢</h3>
+                <p>適合首次 clone 或切換 branch 後使用，確認本機工具與 acceptance gates 都可重跑。</p>
+                <pre><code>請使用 tw-law-mcp，先列出目前可用工具，接著執行 run_phase_acceptance。回答時請用「已通過 / 需要處理 / 不能判定」三段整理結果。</code></pre>
+                <p>期望回答結果：Codex 應列出 MCP tools，實際執行 <code>python3 scripts/run_phase_acceptance.py</code>，回報每個 gate 的通過狀態；若失敗，指出失敗 gate、錯誤訊息與下一步，不把驗收結果包裝成法律或審查保證。</p>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">2</div>
+              <div>
+                <h3>建立來源可追溯的圖說審核 snapshot</h3>
+                <p>適合要先確認法規來源、版本日期、資料邊界，再進入文件整理流程。</p>
+                <pre><code>請用 build_law_snapshot 建立 jurisdiction={central:"TW", local:"ntpc"}、case_type="室內裝修"、procedure_stage="圖說審核"、as_of_date="2026-07-06" 的法規快照。回答請包含 snapshot id、來源 URL、authority rank、license 狀態，以及哪些部分需要人工確認。</code></pre>
+                <p>期望回答結果：Codex 應回傳 snapshot metadata 與 source-bound 條目摘要，保留來源 URL、authority rank、license/update policy 與 as-of date；遇到低信心、需專業判斷或缺少使用者提供資料時，應明確標成 human review required。</p>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-inner">
           <h2>常用 Codex App prompt</h2>
           <div class="steps">
             <article class="step">
