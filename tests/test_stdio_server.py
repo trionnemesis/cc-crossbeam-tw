@@ -260,6 +260,30 @@ class StdioServerTests(unittest.TestCase):
                     },
                 },
             )
+            data_layout_acceptance = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 15,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "run_data_layout_acceptance",
+                        "arguments": {},
+                    },
+                },
+            )
+            two_stage_acceptance = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 16,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "run_two_stage_flow_acceptance",
+                        "arguments": {},
+                    },
+                },
+            )
 
             self.assertEqual(initialize["result"]["serverInfo"]["name"], "tw-law-mcp")
             tool_names = {tool["name"] for tool in tools["result"]["tools"]}
@@ -286,6 +310,16 @@ class StdioServerTests(unittest.TestCase):
             self.assertIn("apply_hitl_confirmations", tool_names)
             self.assertIn("detect_illegal_construction_reference", tool_names)
             self.assertIn("run_audit_gates", tool_names)
+            self.assertIn("resolve_tw_scenario", tool_names)
+            self.assertIn("check_fire_equipment_routing", tool_names)
+            self.assertIn("check_fire_compartment_evidence", tool_names)
+            self.assertIn("check_material_evidence", tool_names)
+            self.assertIn("build_ntpc_submission_packet", tool_names)
+            self.assertIn("plan_web_search_fallback", tool_names)
+            self.assertIn("run_data_layout_acceptance", tool_names)
+            self.assertIn("run_two_stage_flow_acceptance", tool_names)
+            self.assertIn("run_tw_corrections_analysis", tool_names)
+            self.assertIn("run_tw_corrections_response", tool_names)
 
             citation_payload = json.loads(call["result"]["content"][0]["text"])
             self.assertTrue(citation_payload["exists"])
@@ -326,7 +360,23 @@ class StdioServerTests(unittest.TestCase):
             scenario_payload = json.loads(scenario_acceptance["result"]["content"][0]["text"])
             self.assertTrue(scenario_payload["all_passed"])
             self.assertEqual(scenario_payload["failures"], [])
-            self.assertGreaterEqual(scenario_payload["query_count"], 6)
+            self.assertGreaterEqual(scenario_payload["query_count"], 30)
+            self.assertTrue(
+                all(count >= 5 for count in scenario_payload["mvp_query_counts"].values())
+            )
+
+            data_layout_payload = json.loads(
+                data_layout_acceptance["result"]["content"][0]["text"]
+            )
+            self.assertTrue(data_layout_payload["all_passed"])
+            self.assertEqual(data_layout_payload["source_pack_count"], 5)
+
+            two_stage_payload = json.loads(
+                two_stage_acceptance["result"]["content"][0]["text"]
+            )
+            self.assertTrue(two_stage_payload["all_passed"])
+            self.assertEqual(two_stage_payload["analysis_artifacts_present"], True)
+            self.assertEqual(two_stage_payload["response_artifacts_present"], True)
 
             stage_payload = json.loads(stage_confidence["result"]["content"][0]["text"])
             self.assertEqual(stage_payload["procedure_stage"], "圖說審核")

@@ -1,0 +1,24 @@
+{
+  "fixture_set_id": "ntpc-two-stage-synthetic-v0",
+  "cases": [
+    {
+      "fixture_id": "ntpc-flow-001",
+      "deidentified": true,
+      "procedure_stage": "竣工查驗",
+      "masked_text": "主旨：室內裝修竣工查驗補正通知\n說明一：請補竣工圖說、材料證明文件及消防安全設備相關文件。",
+      "files": [
+        {"filename": "A101_竣工圖說.pdf", "file_type": "drawing_file"},
+        {"filename": "M001_材料表.pdf", "file_type": "drawing_file"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-flow-002",
+      "deidentified": true,
+      "procedure_stage": "圖說審核",
+      "masked_text": "主旨：室內裝修圖說審核補正通知\n說明一：請補申請書、室內裝修圖說與簽章責任文件。",
+      "files": [
+        {"filename": "A001_室內裝修圖說.pdf", "file_type": "drawing_file"}
+      ]
+    }
+  ]
+}

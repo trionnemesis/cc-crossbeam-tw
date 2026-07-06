@@ -48,7 +48,7 @@
               <div class="node-index">3</div>
               <div>
                 <strong>Phase acceptance</strong>
-                <span>用 deterministic scripts 驗證七個 roadmap gates。</span>
+                <span>用 deterministic scripts 驗證十個 roadmap gates。</span>
               </div>
             </div>
             <div class="node">
@@ -89,7 +89,7 @@ cd cc-crossbeam-tw</code></pre>
               <div class="step-number">3</div>
               <div>
                 <h3>跑全部驗收</h3>
-                <p>這個指令會聚合驗證 P0 source policy、procedure/HITL、G2 fixture、metadata、jurisdiction registry、packaging strategy 與 scenario matrix。</p>
+                <p>這個指令會聚合驗證 P0 source policy、procedure/HITL、G2 fixture、metadata、jurisdiction registry、packaging strategy、scenario matrix、split data、source adapters 與 two-stage flow。</p>
                 <pre><code>python3 scripts/run_phase_acceptance.py</code></pre>
               </div>
             </article>
@@ -126,8 +126,19 @@ cd cc-crossbeam-tw</code></pre>
             </article>
             <article class="card">
               <h3>Scenario matrix</h3>
-              <p>驗證台灣場景 fixture 已宣告 corpus packs、tool boundary、artifact、gate 與 HITL policy。</p>
+              <p>驗證台灣場景 fixture 已宣告 corpus packs、tool boundary、artifact、gate 與 HITL policy；MVP 六類各至少 5 題。</p>
               <pre><code>python3 scripts/run_scenario_matrix_acceptance.py</code></pre>
+            </article>
+            <article class="card">
+              <h3>Split data</h3>
+              <p>驗證五個 source packs、三個 registries、兩個 fixture files 與 normalized source units。</p>
+              <pre><code>python3 scripts/run_data_layout_acceptance.py
+python3 scripts/run_source_adapter_acceptance.py</code></pre>
+            </article>
+            <article class="card">
+              <h3>Two-stage flow</h3>
+              <p>驗證 analysis → response package 骨架，不輸出合規保證、消防設計結論或材料真偽結論。</p>
+              <pre><code>python3 scripts/run_two_stage_flow_acceptance.py</code></pre>
             </article>
           </div>
         </div>

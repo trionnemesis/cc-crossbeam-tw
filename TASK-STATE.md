@@ -54,11 +54,11 @@ L2 feature with L5 long-task overlay.
 - [x] Add Taiwan scenario feature matrix documentation.
 - [x] Add scenario matrix fixture and acceptance gate.
 - [x] Expose scenario matrix acceptance through script, aggregate phase gate, and MCP tool list.
-- [ ] Split corpus into source packs, registries, and fixture data directory.
-- [ ] Add deterministic source adapter contracts producing normalized source units.
-- [ ] Implement scenario MCP tools for routing, fire equipment, fire compartment, material evidence, NTPC packet, and web fallback.
-- [ ] Harden scenario matrix acceptance to verify real packs/tools/artifacts/gates and at least 5 MVP queries per category.
-- [ ] Add two-stage contractor flow skeleton through analysis and response artifacts.
+- [x] Split corpus into source packs, registries, and fixture data directory.
+- [x] Add deterministic source adapter contracts producing normalized source units.
+- [x] Implement scenario MCP tools for routing, fire equipment, fire compartment, material evidence, NTPC packet, and web fallback.
+- [x] Harden scenario matrix acceptance to verify real packs/tools/artifacts/gates and at least 5 MVP queries per category.
+- [x] Add two-stage contractor flow skeleton through analysis and response artifacts.
 
 ## Current Evidence
 
@@ -89,6 +89,9 @@ L2 feature with L5 long-task overlay.
 - Latest full unit test run: `python3 -m unittest discover -s tests` passed, 28 tests.
 - Current branch for completing uploaded plan through step 6: `codex/complete-plan-step6`.
 - Phase 2.1-2.6 scope is now recorded in `.plans/tw-law-mcp.md`; completion requires data split, source-unit adapters, scenario tools, hardened evaluation, and two-stage flow.
+- Latest Phase 2.1-2.6 targeted TDD red: six targeted tests failed for missing data layout, source units, scenario tools, two-stage flow, query count, and MCP exposure.
+- Latest Phase 2.1-2.6 targeted green: six targeted tests passed after implementing split data, source adapters, tools, hardened matrix, and two-stage flow.
+- Latest full unit test run during Phase 2.1-2.6: `python3 -m unittest discover -s tests` passed, 32 tests.
 
 ## Blockers / External Inputs
 

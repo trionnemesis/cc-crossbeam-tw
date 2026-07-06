@@ -33,7 +33,18 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 - `run_jurisdiction_registry_acceptance`：驗證 enabled jurisdiction 有 law pack/stage，disabled jurisdiction 維持 fail-closed。
 - `run_packaging_acceptance`：驗證 Codex/Claude Code wrapper 指向同一 standalone MCP server，且 ADR 決策完整。
 - `run_scenario_matrix_acceptance`：驗證台灣場景矩陣 fixture 已宣告 corpus packs、tool boundary、artifact、gate、HITL 與禁語政策。
-- `run_phase_acceptance`：聚合驗收 P0 source、procedure/HITL、G2 fixture、metadata、jurisdiction、packaging、scenario matrix 七個 roadmap gates。
+- `run_data_layout_acceptance`：驗證 split data layout、source packs、registries、fixtures 與 `source_unit` schema。
+- `run_source_adapter_acceptance`：驗證 MOJ、ABRI/材料、NTPC 法規入口、NTPC e-service reference adapters 均輸出 normalized `source_unit`。
+- `resolve_tw_scenario`：依程序、使用類組、變更使用、消防設備、隔間與材料狀態 routing 到 corpus packs、artifacts 與 gates。
+- `check_fire_equipment_routing`：只判斷消防專業／消防局文件需求，不做消防設計結論。
+- `check_fire_compartment_evidence`：找出防火區劃、防火門、風管、管道間等可能相關條文與人工確認需求。
+- `check_material_evidence`：檢查材料證明 metadata 是否存在與可對應，不判斷材料真偽。
+- `build_ntpc_submission_packet`：依程序階段產生新北送件／竣工查驗文件 packet。
+- `plan_web_search_fallback`：corpus miss 時只產生官方來源 fallback plan，不直接作答。
+- `run_tw_corrections_analysis`：兩階段流程 Stage 1；已遮罩公文與 metadata-only files 產生 analysis artifacts。
+- `run_tw_corrections_response`：兩階段流程 Stage 2；使用 analysis artifacts 與人工回答產生回覆草稿與專業確認包。
+- `run_two_stage_flow_acceptance`：驗證台灣版兩階段 contractor flow 骨架與禁語 policy。
+- `run_phase_acceptance`：聚合驗收 P0 source、procedure/HITL、G2 fixture、metadata、jurisdiction、packaging、scenario matrix、split data、source adapters、two-stage flow gates。
 - `resolve_procedure_requirements`：回傳室內裝修流程需求摘要。
 - `resolve_procedure_stage_confidence`：依文件文字與檔案 metadata 判定 `procedure_stage` 信心分數；低信心進 HITL。
 - `build_law_snapshot`：依 `{jurisdiction, case_type, procedure_stage, as_of_date}` 產生帶有 `source_policy_state`、`source_authority_rank`、`source_license_status` 的版本化法規快照。
@@ -81,16 +92,18 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 │   ├── cc-crossbeam-feature-matrix.md
 │   └── tw-scenario-feature-matrix.md
 ├── fixtures/
-│   ├── g2_baseline.json
-│   └── tw_scenario_queries.json
+│   └── g2_baseline.json
 ├── scripts/
 │   ├── build_law_snapshot.py
+│   ├── run_data_layout_acceptance.py
 │   ├── run_fixture_pipeline.py
 │   ├── run_jurisdiction_registry_acceptance.py
 │   ├── run_packaging_acceptance.py
 │   ├── run_phase_acceptance.py
 │   ├── run_scenario_matrix_acceptance.py
+│   ├── run_source_adapter_acceptance.py
 │   ├── run_source_policy_acceptance.py
+│   ├── run_two_stage_flow_acceptance.py
 │   └── tw_law_mcp_stdio.py
 ├── tests/
 │   ├── test_law_repository.py
@@ -99,7 +112,10 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 │   ├── repository.py
 │   ├── server.py
 │   └── data/
-│       └── p0_law_corpus.json
+│       ├── p0_law_corpus.json
+│       ├── fixtures/
+│       ├── registries/
+│       └── sources/
 ├── .codex/
 │   └── config.toml
 └── .mcp.json
@@ -129,6 +145,13 @@ python3 scripts/run_fixture_pipeline.py
 python3 scripts/run_source_policy_acceptance.py
 ```
 
+執行 split data / source adapter acceptance：
+
+```bash
+python3 scripts/run_data_layout_acceptance.py
+python3 scripts/run_source_adapter_acceptance.py
+```
+
 執行 registry 與 packaging acceptance：
 
 ```bash
@@ -140,6 +163,12 @@ python3 scripts/run_packaging_acceptance.py
 
 ```bash
 python3 scripts/run_scenario_matrix_acceptance.py
+```
+
+執行兩階段 contractor flow acceptance：
+
+```bash
+python3 scripts/run_two_stage_flow_acceptance.py
 ```
 
 執行全部 Phase acceptance：
@@ -164,9 +193,11 @@ python3 -m unittest discover -s tests
 - citation verification。
 - source policy boundary。
 - P0 source policy acceptance。
+- split data layout 與 source adapter acceptance。
 - jurisdiction registry fail-closed acceptance。
 - packaging strategy acceptance。
 - Taiwan scenario matrix acceptance。
+- Taiwan two-stage contractor flow acceptance。
 - aggregate Phase acceptance。
 - procedure-stage confidence + HITL confirmation loop。
 - G2 fixture pipeline acceptance。
@@ -177,9 +208,9 @@ python3 -m unittest discover -s tests
 
 `fixtures/g2_baseline.json` 是 G2 contract baseline：12 份 synthetic de-identified cases、84 個 atomic correction items。此 baseline 用來驗證 schema、gate 與 HITL flow contract，不包含真實姓名、地址、電話、身分證字號、title block 原圖、raw PDF 或 raw drawing。真實去識別案件導入前，必須維持相同欄位與 raw/masked 分流規則。
 
-`fixtures/tw_scenario_queries.json` 是台灣場景矩陣 baseline：每題宣告 scenario category、預期 corpus packs、tool boundary、artifact、gate、HITL policy 與禁止輸出。它先驗證 contract coverage，不代表所有正式 corpus pack 已完成 ingestion。
+`tw_law_mcp/data/fixtures/tw_scenario_queries.json` 是台灣場景矩陣 baseline：每題宣告 scenario category、預期 corpus packs、tool boundary、artifact、gate、HITL policy 與禁止輸出。它先驗證 contract coverage，不代表所有正式 corpus pack 已完成 ingestion。
 
-目前 scenario matrix 覆蓋 `procedure`、`fire_equipment`、`fire_compartment`、`material`、`completion_packet`、`response_draft` 六類 MVP scenarios，另含 `web_fallback` 作為 corpus miss 的 fail-closed plan-only 行為。
+目前 scenario matrix 覆蓋 `procedure`、`fire_equipment`、`fire_compartment`、`material`、`completion_packet`、`response_draft` 六類 MVP scenarios，每類至少 5 題，另含 `web_fallback` 作為 corpus miss 的 fail-closed plan-only 行為。
 
 ## Phase Acceptance 狀態
 
@@ -192,5 +223,7 @@ python3 -m unittest discover -s tests
 - 新北市以外 jurisdiction registry fail-closed stubs。
 - Codex plugin／Claude Code plugin／獨立 MCP server 封裝策略；目前決策為 standalone MCP server first，Codex/Claude Code 只保留 thin MCP wrappers。
 - Taiwan scenario matrix：procedure、fire equipment、fire compartment、material、completion packet、response draft 六類 MVP scenario 均有 fixture coverage。
+- Split data layout 與 source adapters：五個 source packs、三個 registries、兩個 fixture files 與 normalized `source_unit`。
+- Two-stage contractor flow：analysis artifacts 與 response artifacts 可重跑，且不輸出合規保證、消防設計結論或材料真偽結論。
 
 Production 導入前仍需以 approved real de-identified cases 補強或替換 synthetic fixture，並建立 live source ingestion/refresh workflow；目前 acceptance 驗證的是 contract 與 fail-closed 邊界。

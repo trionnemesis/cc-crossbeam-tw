@@ -130,8 +130,7 @@ class LawRepositoryTests(unittest.TestCase):
         acceptance = self.repo.run_phase_acceptance()
 
         self.assertTrue(acceptance["all_passed"])
-        self.assertEqual(
-            set(acceptance["gates"]),
+        self.assertTrue(
             {
                 "p0_source_policy",
                 "procedure_stage_hitl",
@@ -140,7 +139,10 @@ class LawRepositoryTests(unittest.TestCase):
                 "jurisdiction_registry",
                 "packaging_strategy",
                 "scenario_matrix",
-            },
+                "split_data_layout",
+                "source_adapters",
+                "two_stage_flow",
+            }.issubset(set(acceptance["gates"]))
         )
         self.assertTrue(all(acceptance["gates"].values()))
         self.assertEqual(
@@ -169,8 +171,124 @@ class LawRepositoryTests(unittest.TestCase):
             },
         )
         self.assertEqual(set(acceptance["missing_mvp_categories"]), set())
-        self.assertGreaterEqual(acceptance["query_count"], 6)
+        self.assertGreaterEqual(acceptance["query_count"], 30)
+        self.assertTrue(
+            all(count >= 5 for count in acceptance["mvp_query_counts"].values())
+        )
+        self.assertEqual(acceptance["missing_tools"], [])
+        self.assertEqual(acceptance["missing_source_packs"], [])
         self.assertTrue(all(result["passed"] for result in acceptance["scenario_results"]))
+
+    def test_split_data_layout_exposes_source_units_and_registries(self):
+        acceptance = self.repo.run_data_layout_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(acceptance["failures"], [])
+        self.assertEqual(acceptance["source_pack_count"], 5)
+        self.assertEqual(
+            set(acceptance["registry_files"]),
+            {"jurisdictions.json", "procedure_stages.json", "domain_tags.json"},
+        )
+        self.assertEqual(
+            set(acceptance["fixture_files"]),
+            {"tw_scenario_queries.json", "ntpc_synthetic_cases.json"},
+        )
+        self.assertGreaterEqual(acceptance["source_unit_count"], 10)
+
+    def test_source_adapters_normalize_source_units(self):
+        units = self.repo.list_source_units()
+
+        self.assertGreaterEqual(len(units), 10)
+        adapter_ids = {unit["source_adapter_id"] for unit in units}
+        self.assertTrue(
+            {
+                "tw-moj-law-adapter",
+                "abri-material-reference-adapter",
+                "ntpc-official-portal",
+                "ntpc-eservice-reference",
+            }.issubset(adapter_ids)
+        )
+        for unit in units:
+            self.assertRegex(unit["checksum"], r"^[0-9a-f]{64}$")
+            self.assertIn("domain_tags", unit)
+            self.assertTrue(unit["source_url"])
+
+    def test_scenario_tools_fail_closed_for_professional_domains(self):
+        scenario = self.repo.resolve_tw_scenario(
+            jurisdiction={"central": "TW", "local": "ntpc"},
+            case_type="室內裝修",
+            procedure_stage="變更使用併室內裝修竣工查驗",
+            change_of_use_flag=True,
+            fire_equipment_change_flag=True,
+            material_evidence_status="missing",
+        )
+        fire = self.repo.check_fire_equipment_routing(
+            text="本案調整灑水頭與火警探測器位置。",
+            fire_equipment_change_flag=True,
+        )
+        compartment = self.repo.check_fire_compartment_evidence(
+            atomic_items=[{"item_id": "c1", "text": "風管穿越防火牆處請補防火填塞說明"}]
+        )
+        material = self.repo.check_material_evidence(
+            material_records=[
+                {
+                    "name": "耐燃一級天花板",
+                    "location": "A-101",
+                    "certificate_no": "",
+                }
+            ]
+        )
+        packet = self.repo.build_ntpc_submission_packet("竣工查驗", "ntpc")
+        fallback = self.repo.plan_web_search_fallback("新北某地方公告查無", "ntpc")
+
+        self.assertIn("tw-central-fire-equipment", scenario["source_pack_ids"])
+        self.assertTrue(scenario["human_review_required"])
+        self.assertEqual(
+            fire["routing_status"],
+            "requires_fire_authority_document_evidence",
+        )
+        self.assertTrue(fire["professional_confirmation_required"])
+        self.assertTrue(compartment["human_review_required"])
+        self.assertEqual(material["authenticity_judgment"], "not_adjudicated")
+        self.assertIn("材料證明文件", packet["checklist_labels"])
+        self.assertEqual(fallback["answer_policy"], "fallback_plan_only")
+
+    def test_two_stage_contractor_flow_builds_response_without_assurance_claims(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "主旨：室內裝修竣工查驗補正通知\n"
+                "說明一：請補竣工圖說、材料證明文件及消防安全設備相關文件。\n"
+                "說明二：風管穿越防火牆處請補防火填塞說明。"
+            ),
+            files=[
+                {"filename": "A101_竣工圖說.pdf", "file_type": "drawing_file"},
+                {"filename": "M001_材料表.pdf", "file_type": "drawing_file"},
+            ],
+            procedure_stage="竣工查驗",
+            as_of_date="2026-07-06",
+        )
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"],
+            answers=[
+                {
+                    "question_key": "review_auto-001",
+                    "answer_text": "專業人員確認將補材料證明文件。",
+                }
+            ],
+        )
+
+        self.assertEqual(analysis["stage"], "analysis")
+        self.assertIn("document_parsed.json", analysis["artifacts"])
+        self.assertIn("atomic_correction_items.json", analysis["artifacts"])
+        self.assertIn("client_questions.json", analysis["artifacts"])
+        self.assertEqual(response["stage"], "response")
+        self.assertIn("response_draft.md", response["artifacts"])
+        self.assertIn("professional_review_packet.md", response["artifacts"])
+        draft = response["artifacts"]["response_draft.md"]
+        self.assertNotIn("已合規", draft)
+        self.assertNotIn("保證通過", draft)
+        self.assertNotIn("無違法", draft)
 
     def test_resolve_procedure_requirements_is_stage_specific(self):
         drawing_review = self.repo.resolve_procedure_requirements("圖說審核", "ntpc")

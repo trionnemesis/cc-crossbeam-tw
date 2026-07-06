@@ -1,0 +1,51 @@
+{
+  "pack_id": "tw-fire-compartment-and-egress",
+  "enabled": true,
+  "jurisdiction": {"central": "TW", "local": "ntpc"},
+  "case_type": "室內裝修",
+  "domain_tags": ["fire_compartment", "egress"],
+  "source_units": [
+    {
+      "source_id": "moj-building-code-79",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070115",
+      "source_title": "建築技術規則建築設計施工編第79條",
+      "source_type": "article",
+      "authority": "MOI",
+      "authority_rank": 2,
+      "license_status": "open_data_reusable",
+      "crawl_policy": "snapshot_with_checksum",
+      "effective_date": "2025-01-01",
+      "amendment_date": "2025-01-01",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["防火區劃", "防火牆"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核", "竣工查驗"],
+      "domain_tags": ["fire_compartment"],
+      "source_adapter_id": "tw-moj-law-adapter",
+      "text": "防火區劃、防火牆、防火門、防火樓板與垂直貫穿空間查詢需引用建築技術規則並標示人工確認。"
+    },
+    {
+      "source_id": "moj-building-code-85-1",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070115",
+      "source_title": "建築技術規則建築設計施工編第85-1條",
+      "source_type": "article",
+      "authority": "MOI",
+      "authority_rank": 2,
+      "license_status": "open_data_reusable",
+      "crawl_policy": "snapshot_with_checksum",
+      "effective_date": "2025-01-01",
+      "amendment_date": "2025-01-01",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["風管", "管線", "防火填塞"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核", "竣工查驗"],
+      "domain_tags": ["fire_compartment", "egress"],
+      "source_adapter_id": "tw-moj-law-adapter",
+      "text": "風管、管線、設備箱穿越防火區劃時，只輸出可能相關條文與需確認項，不做符合或不符合裁判。"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "pack_id": "tw-central-fire-equipment",
+  "enabled": true,
+  "jurisdiction": {"central": "TW", "local": "ntpc"},
+  "case_type": "室內裝修",
+  "domain_tags": ["fire_equipment"],
+  "source_units": [
+    {
+      "source_id": "moj-fire-act-6",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0120001",
+      "source_title": "消防法第6條",
+      "source_type": "article",
+      "authority": "NFA",
+      "authority_rank": 2,
+      "license_status": "open_data_reusable",
+      "crawl_policy": "snapshot_with_checksum",
+      "effective_date": "2025-01-01",
+      "amendment_date": "2025-01-01",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["消防安全設備", "設置標準"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗"],
+      "domain_tags": ["fire_equipment"],
+      "source_adapter_id": "tw-moj-law-adapter",
+      "text": "消防法第6條作為各類場所消防安全設備設置與維護標準的中央法源依據。"
+    },
+    {
+      "source_id": "ntpc-fire-document-evidence",
+      "source_url": "https://www.ntpc.gov.tw/",
+      "source_title": "新北消防文件參考入口",
+      "source_type": "official_reference",
+      "authority": "NTPC",
+      "authority_rank": 3,
+      "license_status": "official_reference_only",
+      "crawl_policy": "official_reference_only",
+      "effective_date": "2026-07-06",
+      "amendment_date": "2026-07-06",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["消防局文件", "竣工查驗"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["竣工查驗", "變更使用併室內裝修竣工查驗"],
+      "domain_tags": ["fire_equipment"],
+      "source_adapter_id": "ntpc-eservice-reference",
+      "text": "室內裝修若涉及消防安全設備變更，輸出只判斷消防專業或消防局文件需求，不做消防設計結論。"
+    }
+  ]
+}

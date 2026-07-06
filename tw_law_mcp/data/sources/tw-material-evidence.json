@@ -1,0 +1,51 @@
+{
+  "pack_id": "tw-material-evidence",
+  "enabled": true,
+  "jurisdiction": {"central": "TW", "local": "ntpc"},
+  "case_type": "室內裝修",
+  "domain_tags": ["material", "material_certificate"],
+  "source_units": [
+    {
+      "source_id": "abri-material-recognition-query",
+      "source_url": "https://www.lab.abri.gov.tw/News_Content.aspx?n=11795&s=41585&sms=9523",
+      "source_title": "建築新技術新工法新設備及新材料認可案件查詢",
+      "source_type": "certificate_record_reference",
+      "authority": "ABRI",
+      "authority_rank": 3,
+      "license_status": "official_reference_only",
+      "crawl_policy": "official_reference_only",
+      "effective_date": "2026-07-06",
+      "amendment_date": "2026-07-06",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["耐燃材料", "認可通知書", "材料證明"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核", "竣工查驗"],
+      "domain_tags": ["material", "material_certificate"],
+      "source_adapter_id": "abri-material-reference-adapter",
+      "text": "材料證明檢核只確認文件存在、認可編號、位置、數量與圖說對應關係，不判斷材料真偽。"
+    },
+    {
+      "source_id": "ntpc-material-evidence-rule",
+      "source_url": "https://web.law.ntpc.gov.tw/",
+      "source_title": "新北材料證明文件作業參考",
+      "source_type": "requirement_item",
+      "authority": "NTPC",
+      "authority_rank": 3,
+      "license_status": "official_reference_only",
+      "crawl_policy": "official_reference_only",
+      "effective_date": "2026-07-06",
+      "amendment_date": "2026-07-06",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["出廠證明", "商品檢驗", "材料計算表"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["竣工查驗"],
+      "domain_tags": ["material", "ntpc_local"],
+      "source_adapter_id": "ntpc-official-portal",
+      "text": "竣工材料書、材料計算表、認證材料合格證明與照片缺項時應 fail-closed 並要求人工確認。"
+    }
+  ]
+}

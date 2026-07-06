@@ -1,0 +1,51 @@
+{
+  "pack_id": "tw-central-interior-core",
+  "enabled": true,
+  "jurisdiction": {"central": "TW", "local": "ntpc"},
+  "case_type": "室內裝修",
+  "domain_tags": ["interior_core", "procedure", "change_of_use"],
+  "source_units": [
+    {
+      "source_id": "moj-building-act-77-2",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070109",
+      "source_title": "建築法第77-2條",
+      "source_type": "article",
+      "authority": "MOI",
+      "authority_rank": 2,
+      "license_status": "open_data_reusable",
+      "crawl_policy": "snapshot_with_checksum",
+      "effective_date": "2023-12-15",
+      "amendment_date": "2023-12-15",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["室內裝修", "防火避難", "消防設備"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗"],
+      "domain_tags": ["interior_core", "procedure"],
+      "source_adapter_id": "tw-moj-law-adapter",
+      "text": "建築法第77-2條作為室內裝修申請審查與不得妨害防火避難設施、消防設備、防火區劃等事項的中央法源依據。"
+    },
+    {
+      "source_id": "moj-interior-reg-23",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070148",
+      "source_title": "建築物室內裝修管理辦法第23條",
+      "source_type": "article",
+      "authority": "MOI",
+      "authority_rank": 2,
+      "license_status": "open_data_reusable",
+      "crawl_policy": "snapshot_with_checksum",
+      "effective_date": "2024-01-01",
+      "amendment_date": "2024-01-01",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["圖說審核", "申請書", "簽章"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核"],
+      "domain_tags": ["interior_core", "procedure"],
+      "source_adapter_id": "tw-moj-law-adapter",
+      "text": "室內裝修圖說審核應檢附申請書、權利證明、相關圖面、室內裝修圖說及簽章責任文件。"
+    }
+  ]
+}

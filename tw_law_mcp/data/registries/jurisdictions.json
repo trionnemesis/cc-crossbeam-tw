@@ -1,0 +1,29 @@
+{
+  "jurisdictions": [
+    {
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "display_name": "新北市",
+      "enabled": true,
+      "default_case_type": "室內裝修",
+      "source_pack_ids": [
+        "tw-central-interior-core",
+        "tw-central-fire-equipment",
+        "tw-fire-compartment-and-egress",
+        "tw-material-evidence",
+        "ntpc-interior-procedure"
+      ]
+    },
+    {
+      "jurisdiction": {"central": "TW", "local": "tpe"},
+      "display_name": "臺北市",
+      "enabled": false,
+      "handling": "stub only; fail closed until local law pack is verified"
+    },
+    {
+      "jurisdiction": {"central": "TW", "local": "tyc"},
+      "display_name": "桃園市",
+      "enabled": false,
+      "handling": "stub only; fail closed until local law pack is verified"
+    }
+  ]
+}

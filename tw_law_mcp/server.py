@@ -190,6 +190,96 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "run_data_layout_acceptance",
+        "description": "Verify split source packs, registries, fixtures, and normalized source_unit contracts.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "run_source_adapter_acceptance",
+        "description": "Verify deterministic source adapters produce normalized source_units.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "resolve_tw_scenario",
+        "description": "Resolve Taiwan/New Taipei interior renovation scenario routing to source packs, artifacts, and gates.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "jurisdiction": {"type": "object"},
+                "case_type": {"type": "string"},
+                "procedure_stage": {"type": "string"},
+                "building_use_group": {"type": "string"},
+                "public_use_flag": {"type": "boolean"},
+                "change_of_use_flag": {"type": "boolean"},
+                "fire_equipment_change_flag": {"type": "boolean"},
+                "partition_change_flag": {"type": "boolean"},
+                "material_evidence_status": {"type": "string"},
+            },
+            "required": ["jurisdiction", "case_type"],
+        },
+    },
+    {
+        "name": "check_fire_equipment_routing",
+        "description": "Fail-closed routing for fire-safety-equipment document/professional confirmation needs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "files": {"type": "array", "items": {"type": "string"}},
+                "fire_equipment_change_flag": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "name": "check_fire_compartment_evidence",
+        "description": "Find fire-compartment related evidence terms and source-bound human-confirmation needs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "atomic_items": {"type": "array", "items": {"type": "object"}},
+                "sheet_manifest": {"type": "object"},
+                "text": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "check_material_evidence",
+        "description": "Check material evidence metadata presence without judging material authenticity.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "material_records": {"type": "array", "items": {"type": "object"}},
+                "files": {"type": "array", "items": {"type": "string"}},
+                "text": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "build_ntpc_submission_packet",
+        "description": "Build New Taipei submission/completion packet checklist for a procedure stage.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "procedure_stage": {"type": "string"},
+                "jurisdiction": {"type": "string"},
+            },
+            "required": ["procedure_stage"],
+        },
+    },
+    {
+        "name": "plan_web_search_fallback",
+        "description": "Return an official-source fallback plan for corpus misses without answering from live search.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "jurisdiction": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "resolve_procedure_requirements",
         "description": "Return stage-specific New Taipei interior renovation procedure requirements.",
         "inputSchema": {
@@ -338,6 +428,38 @@ TOOL_SCHEMAS: list[JSON] = [
             "required": ["correction_items"],
         },
     },
+    {
+        "name": "run_tw_corrections_analysis",
+        "description": "Run stage 1 Taiwan corrections analysis from masked text and metadata-only files.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "files": {"type": "array", "items": {"type": "object"}},
+                "jurisdiction": {"type": "string"},
+                "procedure_stage": {"type": "string"},
+                "as_of_date": {"type": "string"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "run_tw_corrections_response",
+        "description": "Run stage 2 Taiwan corrections response from analysis artifacts and human answers.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "analysis_artifacts": {"type": "object"},
+                "answers": {"type": "array", "items": {"type": "object"}},
+            },
+            "required": ["analysis_artifacts"],
+        },
+    },
+    {
+        "name": "run_two_stage_flow_acceptance",
+        "description": "Verify deterministic two-stage Taiwan contractor flow artifacts and red-line policy.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -361,6 +483,14 @@ class TwLawMcpServer:
             "run_packaging_acceptance": self.repo.run_packaging_acceptance,
             "run_phase_acceptance": self.repo.run_phase_acceptance,
             "run_scenario_matrix_acceptance": self.repo.run_scenario_matrix_acceptance,
+            "run_data_layout_acceptance": self.repo.run_data_layout_acceptance,
+            "run_source_adapter_acceptance": self.repo.run_source_adapter_acceptance,
+            "resolve_tw_scenario": self.repo.resolve_tw_scenario,
+            "check_fire_equipment_routing": self.repo.check_fire_equipment_routing,
+            "check_fire_compartment_evidence": self.repo.check_fire_compartment_evidence,
+            "check_material_evidence": self.repo.check_material_evidence,
+            "build_ntpc_submission_packet": self.repo.build_ntpc_submission_packet,
+            "plan_web_search_fallback": self.repo.plan_web_search_fallback,
             "resolve_procedure_requirements": self.repo.resolve_procedure_requirements,
             "resolve_procedure_stage_confidence": self.repo.resolve_procedure_stage_confidence,
             "get_fixture_baseline_status": self.repo.get_fixture_baseline_status,
@@ -372,6 +502,9 @@ class TwLawMcpServer:
             "build_hitl_confirmation_packet": self.repo.build_hitl_confirmation_packet,
             "apply_hitl_confirmations": self.repo.apply_hitl_confirmations,
             "run_audit_gates": self.repo.run_audit_gates,
+            "run_tw_corrections_analysis": self.repo.run_tw_corrections_analysis,
+            "run_tw_corrections_response": self.repo.run_tw_corrections_response,
+            "run_two_stage_flow_acceptance": self.repo.run_two_stage_flow_acceptance,
         }
 
     def handle(self, request: JSON) -> JSON | None:

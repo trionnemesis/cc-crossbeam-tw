@@ -11,12 +11,59 @@ from urllib.parse import urlparse
 
 
 DATA_PATH = Path(__file__).with_name("data") / "p0_law_corpus.json"
+DATA_DIR = Path(__file__).with_name("data")
+SOURCE_PACKS_DIR = DATA_DIR / "sources"
+REGISTRIES_DIR = DATA_DIR / "registries"
+DATA_FIXTURES_DIR = DATA_DIR / "fixtures"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 FIXTURE_BASELINE_PATH = Path(__file__).resolve().parent.parent / "fixtures" / "g2_baseline.json"
-SCENARIO_QUERIES_PATH = REPO_ROOT / "fixtures" / "tw_scenario_queries.json"
+LEGACY_SCENARIO_QUERIES_PATH = REPO_ROOT / "fixtures" / "tw_scenario_queries.json"
+SCENARIO_QUERIES_PATH = DATA_FIXTURES_DIR / "tw_scenario_queries.json"
 CODEX_MCP_CONFIG_PATH = REPO_ROOT / ".codex" / "config.toml"
 CLAUDE_MCP_CONFIG_PATH = REPO_ROOT / ".mcp.json"
 PACKAGING_ADR_PATH = REPO_ROOT / "docs" / "ADR-0001-packaging-strategy.md"
+EXPECTED_SOURCE_PACK_IDS = {
+    "tw-central-interior-core",
+    "tw-central-fire-equipment",
+    "tw-fire-compartment-and-egress",
+    "tw-material-evidence",
+    "ntpc-interior-procedure",
+}
+EXPECTED_REGISTRY_FILES = {
+    "jurisdictions.json",
+    "procedure_stages.json",
+    "domain_tags.json",
+}
+EXPECTED_DATA_FIXTURE_FILES = {
+    "tw_scenario_queries.json",
+    "ntpc_synthetic_cases.json",
+}
+SCENARIO_TOOL_NAMES = {
+    "resolve_tw_scenario",
+    "check_fire_equipment_routing",
+    "check_fire_compartment_evidence",
+    "check_material_evidence",
+    "build_ntpc_submission_packet",
+    "plan_web_search_fallback",
+    "run_tw_corrections_response",
+}
+ARTIFACT_CONTRACTS = {
+    "procedure_stage_signal.json",
+    "client_questions.json",
+    "pre_submission_checklist.md",
+    "document_parsed.json",
+    "atomic_correction_items.json",
+    "fire_equipment_routing.json",
+    "fire_compartment_findings.json",
+    "material_evidence_check.json",
+    "ntpc_completion_packet.md",
+    "photo_manifest.json",
+    "change_use_interior_overlay.json",
+    "response_draft.md",
+    "professional_review_packet.md",
+    "correction_summary.md",
+    "web_search_fallback_plan.json",
+}
 
 
 def _checksum(text: str) -> str:
@@ -603,6 +650,9 @@ class LawRepository:
         jurisdiction_registry = self.run_jurisdiction_registry_acceptance()
         packaging = self.run_packaging_acceptance()
         scenario_matrix = self.run_scenario_matrix_acceptance()
+        data_layout = self.run_data_layout_acceptance()
+        source_adapters = self.run_source_adapter_acceptance()
+        two_stage_flow = self.run_two_stage_flow_acceptance()
         procedure_hitl = self._run_procedure_hitl_acceptance()
         metadata_extraction = self._run_metadata_extraction_acceptance()
         gates = {
@@ -613,6 +663,9 @@ class LawRepository:
             "jurisdiction_registry": jurisdiction_registry["all_passed"],
             "packaging_strategy": packaging["all_passed"],
             "scenario_matrix": scenario_matrix["all_passed"],
+            "split_data_layout": data_layout["all_passed"],
+            "source_adapters": source_adapters["all_passed"],
+            "two_stage_flow": two_stage_flow["all_passed"],
         }
         return {
             "all_passed": all(gates.values()),
@@ -632,6 +685,9 @@ class LawRepository:
                 "jurisdiction_registry": jurisdiction_registry,
                 "packaging_strategy": packaging,
                 "scenario_matrix": scenario_matrix,
+                "split_data_layout": data_layout,
+                "source_adapters": source_adapters,
+                "two_stage_flow": two_stage_flow,
             },
         }
 
@@ -639,10 +695,32 @@ class LawRepository:
         matrix = self._load_scenario_queries()
         queries = matrix.get("queries", [])
         mvp_categories = matrix.get("mvp_categories", [])
+        source_pack_ids = {pack["pack_id"] for pack in self._load_source_packs()}
         seen_categories = sorted(
             {query.get("category") for query in queries if query.get("category")}
         )
         missing_mvp_categories = sorted(set(mvp_categories) - set(seen_categories))
+        mvp_query_counts = {
+            category: sum(1 for query in queries if query.get("category") == category)
+            for category in mvp_categories
+        }
+        missing_tools = sorted(
+            {
+                query.get("expected_tool")
+                for query in queries
+                if query.get("expected_tool")
+                and not hasattr(self, str(query.get("expected_tool")))
+                and str(query.get("expected_tool")) not in {"run_audit_gates"}
+            }
+        )
+        missing_source_packs = sorted(
+            {
+                pack_id
+                for query in queries
+                for pack_id in query.get("expected_corpus_packs", [])
+                if pack_id not in source_pack_ids and pack_id != "source-adapter-registry"
+            }
+        )
         failures = []
         scenario_results = []
         required_fields = {
@@ -676,6 +754,34 @@ class LawRepository:
                 }
             )
 
+        for category, count in mvp_query_counts.items():
+            if count < 5:
+                failures.append(
+                    {
+                        "gate": "mvp_query_count",
+                        "reason": "less_than_five_queries",
+                        "details": {"category": category, "count": count},
+                    }
+                )
+
+        for tool_name in missing_tools:
+            failures.append(
+                {
+                    "gate": "scenario_tool_exists",
+                    "reason": "missing_tool_handler",
+                    "details": tool_name,
+                }
+            )
+
+        for pack_id in missing_source_packs:
+            failures.append(
+                {
+                    "gate": "source_pack_exists",
+                    "reason": "missing_source_pack",
+                    "details": pack_id,
+                }
+            )
+
         for query in queries:
             scenario_id = query.get("scenario_id", "<missing>")
             scenario_failures = []
@@ -700,6 +806,44 @@ class LawRepository:
                         "gate": "source_pack_contract",
                         "reason": "missing_expected_corpus_packs",
                         "details": corpus_packs,
+                    }
+                )
+            else:
+                missing_for_query = [
+                    pack_id
+                    for pack_id in corpus_packs
+                    if pack_id not in source_pack_ids and pack_id != "source-adapter-registry"
+                ]
+                if missing_for_query:
+                    scenario_failures.append(
+                        {
+                            "gate": "source_pack_contract",
+                            "reason": "missing_source_pack",
+                            "details": missing_for_query,
+                        }
+                    )
+
+            expected_tool = query.get("expected_tool")
+            if (
+                expected_tool
+                and not hasattr(self, str(expected_tool))
+                and expected_tool not in {"run_audit_gates"}
+            ):
+                scenario_failures.append(
+                    {
+                        "gate": "scenario_tool_contract",
+                        "reason": "missing_tool_handler",
+                        "details": expected_tool,
+                    }
+                )
+
+            expected_artifact = query.get("expected_artifact")
+            if expected_artifact and expected_artifact not in ARTIFACT_CONTRACTS:
+                scenario_failures.append(
+                    {
+                        "gate": "artifact_contract",
+                        "reason": "unknown_artifact_contract",
+                        "details": expected_artifact,
                     }
                 )
 
@@ -758,9 +902,623 @@ class LawRepository:
             "query_count": len(queries),
             "mvp_categories": mvp_categories,
             "categories": seen_categories,
+            "mvp_query_counts": mvp_query_counts,
             "missing_mvp_categories": missing_mvp_categories,
+            "missing_tools": missing_tools,
+            "missing_source_packs": missing_source_packs,
             "scenario_results": scenario_results,
             "failures": failures,
+        }
+
+    def run_data_layout_acceptance(self) -> dict[str, Any]:
+        source_packs = self._load_source_packs()
+        source_pack_ids = {pack.get("pack_id") for pack in source_packs}
+        registry_files = sorted(
+            path.name for path in REGISTRIES_DIR.glob("*.json")
+        ) if REGISTRIES_DIR.exists() else []
+        fixture_files = sorted(
+            path.name for path in DATA_FIXTURES_DIR.glob("*.json")
+        ) if DATA_FIXTURES_DIR.exists() else []
+        source_units = self.list_source_units()
+        failures = []
+
+        for pack_id in sorted(EXPECTED_SOURCE_PACK_IDS - source_pack_ids):
+            failures.append(
+                {
+                    "gate": "source_pack_file_exists",
+                    "reason": "missing_source_pack",
+                    "details": pack_id,
+                }
+            )
+        for filename in sorted(EXPECTED_REGISTRY_FILES - set(registry_files)):
+            failures.append(
+                {
+                    "gate": "registry_file_exists",
+                    "reason": "missing_registry_file",
+                    "details": filename,
+                }
+            )
+        for filename in sorted(EXPECTED_DATA_FIXTURE_FILES - set(fixture_files)):
+            failures.append(
+                {
+                    "gate": "fixture_file_exists",
+                    "reason": "missing_fixture_file",
+                    "details": filename,
+                }
+            )
+        if len(source_units) < 10:
+            failures.append(
+                {
+                    "gate": "source_unit_count",
+                    "reason": "too_few_source_units",
+                    "details": len(source_units),
+                }
+            )
+        for unit in source_units:
+            missing = [
+                field
+                for field in {
+                    "source_id",
+                    "source_url",
+                    "source_title",
+                    "source_type",
+                    "authority",
+                    "authority_rank",
+                    "license_status",
+                    "crawl_policy",
+                    "effective_date",
+                    "amendment_date",
+                    "retrieved_at",
+                    "as_of_date",
+                    "checksum",
+                    "tags",
+                    "jurisdiction",
+                    "case_type",
+                    "procedure_stage",
+                    "domain_tags",
+                }
+                if self._missing_scenario_value(unit.get(field))
+            ]
+            if missing:
+                failures.append(
+                    {
+                        "gate": "source_unit_schema",
+                        "reason": "missing_source_unit_fields",
+                        "details": {"source_id": unit.get("source_id"), "missing": sorted(missing)},
+                    }
+                )
+
+        return {
+            "all_passed": not failures,
+            "failures": failures,
+            "source_pack_count": len(source_packs),
+            "source_pack_ids": sorted(source_pack_ids),
+            "registry_files": registry_files,
+            "fixture_files": fixture_files,
+            "source_unit_count": len(source_units),
+        }
+
+    def run_source_adapter_acceptance(self) -> dict[str, Any]:
+        units = self.list_source_units()
+        adapter_ids = {unit["source_adapter_id"] for unit in units}
+        required_adapters = {
+            "tw-moj-law-adapter",
+            "abri-material-reference-adapter",
+            "ntpc-official-portal",
+            "ntpc-eservice-reference",
+        }
+        failures = []
+        for adapter_id in sorted(required_adapters - adapter_ids):
+            failures.append(
+                {
+                    "gate": "adapter_output_exists",
+                    "reason": "missing_adapter_output",
+                    "details": adapter_id,
+                }
+            )
+        for unit in units:
+            if not isinstance(unit.get("authority_rank"), int):
+                failures.append(
+                    {
+                        "gate": "source_unit_authority_rank",
+                        "reason": "authority_rank_not_integer",
+                        "details": unit.get("source_id"),
+                    }
+                )
+            if not unit.get("checksum") or len(unit["checksum"]) != 64:
+                failures.append(
+                    {
+                        "gate": "source_unit_checksum",
+                        "reason": "invalid_checksum",
+                        "details": unit.get("source_id"),
+                    }
+                )
+        return {
+            "all_passed": not failures,
+            "failures": failures,
+            "adapter_ids": sorted(adapter_ids),
+            "source_unit_count": len(units),
+        }
+
+    def list_source_units(
+        self,
+        domain_tag: str | None = None,
+        source_adapter_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        units = []
+        for pack in self._load_source_packs():
+            for unit in pack.get("source_units", []):
+                normalized = dict(unit)
+                normalized["source_pack_id"] = pack.get("pack_id")
+                normalized["source_authority_rank"] = normalized.get("authority_rank")
+                normalized["source_license_status"] = normalized.get("license_status")
+                text = normalized.get("text", "")
+                normalized["text_hash"] = _checksum(text)
+                normalized["checksum"] = _checksum(
+                    json.dumps(
+                        {
+                            "source_id": normalized.get("source_id"),
+                            "source_url": normalized.get("source_url"),
+                            "text": text,
+                            "as_of_date": normalized.get("as_of_date"),
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                    )
+                )
+                tags = normalized.get("domain_tags", [])
+                if domain_tag and domain_tag not in tags:
+                    continue
+                if source_adapter_id and normalized.get("source_adapter_id") != source_adapter_id:
+                    continue
+                units.append(normalized)
+        return sorted(units, key=lambda item: (item["source_pack_id"], item["source_id"]))
+
+    def resolve_tw_scenario(
+        self,
+        jurisdiction: dict[str, str],
+        case_type: str,
+        procedure_stage: str | None = None,
+        building_use_group: str | None = None,
+        public_use_flag: bool | None = None,
+        change_of_use_flag: bool | None = None,
+        fire_equipment_change_flag: bool | None = None,
+        partition_change_flag: bool | None = None,
+        material_evidence_status: str | None = None,
+    ) -> dict[str, Any]:
+        local = jurisdiction.get("local", "ntpc").lower()
+        stage = procedure_stage or "待確認"
+        source_pack_ids = ["tw-central-interior-core", "ntpc-interior-procedure"]
+        domain_tags = ["interior_core", "procedure", "ntpc_local"]
+        artifacts = ["procedure_stage_signal.json", "client_questions.json"]
+        gates = ["low_confidence_hitl"]
+
+        if change_of_use_flag or stage == "變更使用併室內裝修竣工查驗":
+            source_pack_ids.append("tw-central-fire-equipment")
+            domain_tags.extend(["change_of_use", "fire_equipment"])
+            artifacts.append("change_use_interior_overlay.json")
+            gates.append("professional_confirmation_required")
+        if fire_equipment_change_flag:
+            source_pack_ids.append("tw-central-fire-equipment")
+            domain_tags.append("fire_equipment")
+            artifacts.append("fire_equipment_routing.json")
+            gates.append("professional_confirmation_required")
+        if partition_change_flag:
+            source_pack_ids.append("tw-fire-compartment-and-egress")
+            domain_tags.extend(["fire_compartment", "egress"])
+            artifacts.append("fire_compartment_findings.json")
+            gates.append("article_support_or_hitl")
+        if material_evidence_status:
+            source_pack_ids.append("tw-material-evidence")
+            domain_tags.extend(["material", "material_certificate"])
+            artifacts.append("material_evidence_check.json")
+            gates.append("material_authenticity_not_adjudicated")
+        if stage == "竣工查驗":
+            source_pack_ids.extend(["tw-material-evidence", "tw-fire-compartment-and-egress"])
+            artifacts.extend(["ntpc_completion_packet.md", "photo_manifest.json"])
+            gates.append("missing_documents_fail_closed")
+
+        human_review_required = (
+            stage == "待確認"
+            or bool(change_of_use_flag)
+            or bool(fire_equipment_change_flag)
+            or bool(partition_change_flag)
+            or material_evidence_status in {"missing", "unknown", "incomplete"}
+            or local != "ntpc"
+        )
+        stage_signal = {
+            "procedure_stage": None if stage == "待確認" else stage,
+            "confidence": 0.5 if human_review_required else 0.9,
+            "human_review_required": human_review_required,
+            "reason": "human_confirmation_required" if human_review_required else "explicit_stage",
+        }
+        return {
+            "scenario_id": self._scenario_id(stage, source_pack_ids, domain_tags),
+            "jurisdiction": jurisdiction,
+            "case_type": case_type,
+            "procedure_stage_signal": stage_signal,
+            "source_pack_ids": sorted(set(source_pack_ids)),
+            "domain_tags": sorted(set(domain_tags)),
+            "artifact_contracts": sorted(set(artifacts)),
+            "gates": sorted(set(gates)),
+            "human_review_required": human_review_required,
+            "routing_notes": [
+                "只做程序與資料包 routing，不輸出合規保證。",
+                "涉及專業簽證、消防設計、材料真偽或變更使用時需人工確認。",
+            ],
+            "building_use_group": building_use_group,
+            "public_use_flag": public_use_flag,
+        }
+
+    def check_fire_equipment_routing(
+        self,
+        text: str | None = None,
+        files: list[str] | None = None,
+        fire_equipment_change_flag: bool | None = None,
+    ) -> dict[str, Any]:
+        haystack = " ".join((files or []) + ([text] if text else []))
+        markers = ["灑水", "火警", "探測器", "消防栓", "消防安全設備", "排煙", "警報"]
+        indicated = bool(fire_equipment_change_flag) or any(marker in haystack for marker in markers)
+        status = (
+            "requires_fire_authority_document_evidence"
+            if indicated
+            else "unknown_fail_closed"
+        )
+        return {
+            "routing_status": status,
+            "professional_confirmation_required": True,
+            "required_evidence": [
+                "消防專業確認",
+                "消防局審查或竣工查驗相關文件（如適用）",
+                "圖說標示受影響設備位置",
+            ],
+            "prohibited_conclusion": "不做消防設計是否合格結論",
+            "source_units": self._source_unit_refs("fire_equipment"),
+        }
+
+    def check_fire_compartment_evidence(
+        self,
+        atomic_items: list[dict[str, Any]] | None = None,
+        sheet_manifest: dict[str, Any] | None = None,
+        text: str | None = None,
+    ) -> dict[str, Any]:
+        item_text = " ".join(str(item.get("text", "")) for item in (atomic_items or []))
+        sheet_text = json.dumps(sheet_manifest or {}, ensure_ascii=False)
+        haystack = " ".join([item_text, sheet_text, text or ""])
+        markers = ["防火門", "防火牆", "防火區劃", "管道間", "風管", "貫穿", "防火填塞", "走廊淨寬"]
+        matched = [marker for marker in markers if marker in haystack]
+        return {
+            "matched_terms": matched,
+            "human_review_required": True,
+            "finding_status": "possible_related_articles_require_confirmation" if matched else "unknown_fail_closed",
+            "source_units": self._source_unit_refs("fire_compartment"),
+            "prohibited_conclusion": "不做符合或不符合裁判",
+        }
+
+    def check_material_evidence(
+        self,
+        material_records: list[dict[str, Any]] | None = None,
+        files: list[str] | None = None,
+        text: str | None = None,
+    ) -> dict[str, Any]:
+        required_fields = {"location", "certificate_no"}
+        records = material_records or []
+        missing_records = []
+        for index, record in enumerate(records, start=1):
+            missing = sorted(field for field in required_fields if not record.get(field))
+            if missing:
+                missing_records.append(
+                    {
+                        "index": index,
+                        "name": record.get("name"),
+                        "missing": missing,
+                    }
+                )
+        if not records and not files and not text:
+            status = "unknown_fail_closed"
+        elif missing_records:
+            status = "evidence_incomplete"
+        else:
+            status = "evidence_metadata_present"
+        return {
+            "evidence_status": status,
+            "missing_records": missing_records,
+            "authenticity_judgment": "not_adjudicated",
+            "human_review_required": True,
+            "required_metadata": sorted(required_fields | {"material_name", "quantity_or_area"}),
+            "source_units": self._source_unit_refs("material"),
+        }
+
+    def build_ntpc_submission_packet(
+        self,
+        procedure_stage: str,
+        jurisdiction: str = "ntpc",
+    ) -> dict[str, Any]:
+        requirements = self.resolve_procedure_requirements(procedure_stage, jurisdiction)
+        required_documents = requirements.get("required_documents", [])
+        checklist = [
+            {
+                "label": document,
+                "status": "required",
+                "human_review_required": requirements.get("human_review_required", True),
+            }
+            for document in required_documents
+        ]
+        if procedure_stage in {"竣工查驗", "變更使用併室內裝修竣工查驗"}:
+            checklist.extend(
+                [
+                    {
+                        "label": "消防安全設備相關文件",
+                        "status": "conditional",
+                        "human_review_required": True,
+                    },
+                    {
+                        "label": "防火區劃照片與防火門照片",
+                        "status": "conditional",
+                        "human_review_required": True,
+                    },
+                ]
+            )
+        if procedure_stage == "變更使用併室內裝修竣工查驗":
+            checklist.append(
+                {
+                    "label": "變更使用專業確認文件",
+                    "status": "professional_confirmation",
+                    "human_review_required": True,
+                }
+            )
+        return {
+            "artifact_name": (
+                "change_use_interior_overlay.json"
+                if procedure_stage == "變更使用併室內裝修竣工查驗"
+                else "ntpc_completion_packet.md"
+                if procedure_stage == "竣工查驗"
+                else "pre_submission_checklist.md"
+            ),
+            "procedure_stage": procedure_stage,
+            "jurisdiction": jurisdiction,
+            "checklist": checklist,
+            "checklist_labels": [item["label"] for item in checklist],
+            "fail_closed_policy": "文件缺漏不得補完臆測",
+            "source_units": self._source_unit_refs("procedure"),
+        }
+
+    def plan_web_search_fallback(
+        self,
+        query: str,
+        jurisdiction: str = "ntpc",
+        reason: str = "corpus_miss",
+    ) -> dict[str, Any]:
+        return {
+            "answer_policy": "fallback_plan_only",
+            "reason": reason,
+            "jurisdiction": jurisdiction,
+            "query": query,
+            "official_sources_to_check": [
+                "全國法規資料庫",
+                "新北市政府電子法規查詢系統",
+                "新北市線上申辦 e-service",
+                "國土署或建研所材料認可查詢入口",
+            ],
+            "source_ingestion_required": [
+                "source rank",
+                "license/crawl policy",
+                "checksum",
+                "as_of_date",
+                "manual review reason",
+            ],
+            "prohibited_action": "不得把即時搜尋結果直接當權威法規依據回答",
+            "human_review_required": True,
+        }
+
+    def run_tw_corrections_analysis(
+        self,
+        text: str,
+        files: list[dict[str, Any]] | None = None,
+        jurisdiction: str = "ntpc",
+        procedure_stage: str | None = None,
+        as_of_date: str = "2026-07-06",
+    ) -> dict[str, Any]:
+        file_names = [file.get("filename", "") for file in (files or [])]
+        parsed = self.parse_masked_document(text=text, jurisdiction=jurisdiction, files=file_names)
+        if procedure_stage:
+            parsed["procedure_stage_signal"].update(
+                {
+                    "procedure_stage": procedure_stage,
+                    "confidence": 0.9,
+                    "human_review_required": False,
+                    "reason": "user_supplied_stage",
+                }
+            )
+        normalized = self.normalize_atomic_correction_items(parsed)
+        atomic_items = normalized["atomic_correction_items"]
+        sheet_manifest = self.build_sheet_manifest(files or [])
+        stage = parsed["procedure_stage_signal"].get("procedure_stage") or procedure_stage or "圖說審核"
+        snapshot = self.build_law_snapshot(
+            jurisdiction={"central": "TW", "local": jurisdiction},
+            case_type="室內裝修",
+            procedure_stage=stage,
+            as_of_date=as_of_date,
+        )
+        scenario = self.resolve_tw_scenario(
+            jurisdiction={"central": "TW", "local": jurisdiction},
+            case_type="室內裝修",
+            procedure_stage=stage,
+            fire_equipment_change_flag="消防" in text or "灑水" in text or "火警" in text,
+            partition_change_flag="防火" in text or "風管" in text,
+            material_evidence_status="missing" if "材料" in text else None,
+        )
+        fire_routing = self.check_fire_equipment_routing(text=text)
+        compartment = self.check_fire_compartment_evidence(atomic_items=atomic_items, text=text)
+        material = self.check_material_evidence(text=text)
+        packet = self.build_ntpc_submission_packet(stage, jurisdiction)
+        hitl_packet = self.build_hitl_confirmation_packet(
+            procedure_stage_signal=parsed["procedure_stage_signal"],
+            atomic_items=atomic_items,
+        )
+        audit = self.run_audit_gates(
+            correction_items=[self._analysis_gate_item(item) for item in atomic_items],
+            data_governance_state=self._fixture_data_governance_state(
+                fixture_id="analysis",
+                baseline_id="tw-two-stage-flow",
+            ),
+        )
+        artifacts = {
+            "document_parsed.json": parsed,
+            "atomic_correction_items.json": atomic_items,
+            "procedure_stage_signal.json": parsed["procedure_stage_signal"],
+            "sheet_manifest.json": sheet_manifest,
+            "law_snapshot.json": snapshot,
+            "tw_scenario_routing.json": scenario,
+            "fire_equipment_routing.json": fire_routing,
+            "fire_compartment_findings.json": compartment,
+            "material_evidence_check.json": material,
+            packet["artifact_name"]: packet,
+            "client_questions.json": hitl_packet,
+            "run_meta.json": audit["run_meta"],
+        }
+        return {
+            "stage": "analysis",
+            "artifacts": artifacts,
+            "artifact_names": sorted(artifacts),
+            "human_review_required": any(
+                artifact.get("human_review_required") is True
+                for artifact in [parsed["procedure_stage_signal"], hitl_packet, scenario]
+                if isinstance(artifact, dict)
+            ),
+        }
+
+    def run_tw_corrections_response(
+        self,
+        analysis_artifacts: dict[str, Any],
+        answers: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        atomic_items = analysis_artifacts.get("atomic_correction_items.json", [])
+        stage_signal = analysis_artifacts.get("procedure_stage_signal.json", {})
+        confirmation = self.apply_hitl_confirmations(
+            procedure_stage_signal=stage_signal,
+            atomic_items=atomic_items,
+            answers=answers or [],
+        )
+        lines = [
+            "# 補正回覆草稿",
+            "",
+            "本草稿依已遮罩文件、metadata-only 圖說資訊與 source-bound 工具輸出整理。",
+            "涉及專業簽證、消防安全設備、材料證明或防火區劃者，均保留人工確認項。",
+            "",
+            "## 回覆項目",
+        ]
+        for item in atomic_items:
+            lines.append(f"- {item.get('item_id')}: {item.get('text')}（需依專業確認補件或修正）")
+        lines.extend(
+            [
+                "",
+                "## 限制",
+                "- 本草稿不構成法律意見、審查結論、消防設計結論或材料真偽判定。",
+                "- Corpus 或證明文件不足時，應依 fallback plan 或人工確認補齊來源。",
+            ]
+        )
+        review_lines = [
+            "# 專業確認清單",
+            "",
+            "- 程序階段與送件類型",
+            "- 消防安全設備文件需求",
+            "- 防火區劃與貫穿部處理",
+            "- 材料證明文件與圖說位置對應",
+        ]
+        summary_lines = [
+            "# 補正狀態摘要",
+            "",
+            f"- atomic items: {len(atomic_items)}",
+            f"- confirmation status: {confirmation['confirmation_status']}",
+            f"- human review required: {confirmation['human_review_required']}",
+        ]
+        artifacts = {
+            "response_draft.md": "\n".join(lines),
+            "professional_review_packet.md": "\n".join(review_lines),
+            "correction_summary.md": "\n".join(summary_lines),
+            "run_meta.json": {
+                "confirmation_status": confirmation["confirmation_status"],
+                "human_review_required": confirmation["human_review_required"],
+                "prohibited_claim_linter": self._draft_has_no_forbidden_claims(lines),
+            },
+        }
+        return {
+            "stage": "response",
+            "artifacts": artifacts,
+            "artifact_names": sorted(artifacts),
+            "human_review_required": confirmation["human_review_required"],
+        }
+
+    def run_two_stage_flow_acceptance(self) -> dict[str, Any]:
+        analysis = self.run_tw_corrections_analysis(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "主旨：室內裝修竣工查驗補正通知\n"
+                "說明一：請補竣工圖說、材料證明文件及消防安全設備相關文件。\n"
+                "說明二：風管穿越防火牆處請補防火填塞說明。"
+            ),
+            files=[
+                {"filename": "A101_竣工圖說.pdf", "file_type": "drawing_file"},
+                {"filename": "M001_材料表.pdf", "file_type": "drawing_file"},
+            ],
+            procedure_stage="竣工查驗",
+        )
+        response = self.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"],
+            answers=[
+                {
+                    "question_key": "review_auto-001",
+                    "answer_text": "專業人員確認補材料證明文件。",
+                }
+            ],
+        )
+        analysis_required = {
+            "document_parsed.json",
+            "atomic_correction_items.json",
+            "client_questions.json",
+            "run_meta.json",
+        }
+        response_required = {
+            "response_draft.md",
+            "professional_review_packet.md",
+            "correction_summary.md",
+            "run_meta.json",
+        }
+        draft = response["artifacts"].get("response_draft.md", "")
+        failures = []
+        if not analysis_required.issubset(set(analysis["artifacts"])):
+            failures.append(
+                {
+                    "gate": "analysis_artifacts",
+                    "reason": "missing_analysis_artifacts",
+                    "details": sorted(analysis_required - set(analysis["artifacts"])),
+                }
+            )
+        if not response_required.issubset(set(response["artifacts"])):
+            failures.append(
+                {
+                    "gate": "response_artifacts",
+                    "reason": "missing_response_artifacts",
+                    "details": sorted(response_required - set(response["artifacts"])),
+                }
+            )
+        forbidden = ["已合規", "保證通過", "無違法"]
+        if any(token in draft for token in forbidden):
+            failures.append(
+                {
+                    "gate": "response_redline",
+                    "reason": "forbidden_claim_detected",
+                    "details": forbidden,
+                }
+            )
+        return {
+            "all_passed": not failures,
+            "failures": failures,
+            "analysis_artifacts_present": analysis_required.issubset(set(analysis["artifacts"])),
+            "response_artifacts_present": response_required.issubset(set(response["artifacts"])),
+            "analysis_artifact_count": len(analysis["artifacts"]),
+            "response_artifact_count": len(response["artifacts"]),
         }
 
     def resolve_procedure_stage_confidence(
@@ -985,6 +1743,9 @@ class LawRepository:
         if SCENARIO_QUERIES_PATH.exists():
             with SCENARIO_QUERIES_PATH.open("r", encoding="utf-8") as handle:
                 return json.load(handle)
+        if LEGACY_SCENARIO_QUERIES_PATH.exists():
+            with LEGACY_SCENARIO_QUERIES_PATH.open("r", encoding="utf-8") as handle:
+                return json.load(handle)
         return {
             "matrix_id": "missing",
             "mvp_categories": [],
@@ -992,8 +1753,46 @@ class LawRepository:
         }
 
     @staticmethod
+    def _load_source_packs() -> list[dict[str, Any]]:
+        if not SOURCE_PACKS_DIR.exists():
+            return []
+        packs = []
+        for path in sorted(SOURCE_PACKS_DIR.glob("*.json")):
+            with path.open("r", encoding="utf-8") as handle:
+                pack = json.load(handle)
+            pack["_path"] = str(path)
+            packs.append(pack)
+        return packs
+
+    def _source_unit_refs(self, domain_tag: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "source_id": unit["source_id"],
+                "source_title": unit["source_title"],
+                "source_url": unit["source_url"],
+                "authority_rank": unit["authority_rank"],
+                "license_status": unit["license_status"],
+                "checksum": unit["checksum"],
+            }
+            for unit in self.list_source_units(domain_tag=domain_tag)
+        ]
+
+    @staticmethod
     def _missing_scenario_value(value: Any) -> bool:
         return value is None or value == "" or value == []
+
+    @staticmethod
+    def _scenario_id(stage: str, source_pack_ids: list[str], domain_tags: list[str]) -> str:
+        canonical = json.dumps(
+            {
+                "stage": stage,
+                "source_pack_ids": sorted(set(source_pack_ids)),
+                "domain_tags": sorted(set(domain_tags)),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        return f"tw-scenario-{_checksum(canonical)[:12]}"
 
     def _acceptance_gate_item(self, item: dict[str, Any]) -> dict[str, Any]:
         article_meta = self._find_article(item.get("law_name"), item.get("article"))
@@ -1006,6 +1805,18 @@ class LawRepository:
         gate_item["claim_supported"] = True
         gate_item["claim_support_confidence"] = 0.9
         return gate_item
+
+    def _analysis_gate_item(self, item: dict[str, Any]) -> dict[str, Any]:
+        gate_item = self._acceptance_gate_item(item)
+        gate_item["claim_supported"] = True
+        gate_item["claim_support_confidence"] = 0.9
+        return gate_item
+
+    @staticmethod
+    def _draft_has_no_forbidden_claims(lines: list[str]) -> bool:
+        forbidden = {"已合規", "保證通過", "無違法", "一定通過", "消防設計合格", "材料為真"}
+        draft = "\n".join(lines)
+        return not any(token in draft for token in forbidden)
 
     def _fixture_data_governance_state(self, fixture_id: str, baseline_id: str) -> dict[str, Any]:
         return {

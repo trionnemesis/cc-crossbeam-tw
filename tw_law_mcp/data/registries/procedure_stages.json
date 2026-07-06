@@ -1,0 +1,24 @@
+{
+  "procedure_stages": [
+    {
+      "stage": "圖說審核",
+      "artifact": "procedure_stage_signal.json",
+      "default_gate": "low_confidence_hitl"
+    },
+    {
+      "stage": "竣工查驗",
+      "artifact": "ntpc_completion_packet.md",
+      "default_gate": "missing_documents_fail_closed"
+    },
+    {
+      "stage": "變更使用併室內裝修竣工查驗",
+      "artifact": "change_use_interior_overlay.json",
+      "default_gate": "professional_confirmation_required"
+    },
+    {
+      "stage": "簡易室內裝修",
+      "artifact": "pre_submission_checklist.md",
+      "default_gate": "scope_hitl"
+    }
+  ]
+}

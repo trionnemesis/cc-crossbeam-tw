@@ -1,0 +1,51 @@
+{
+  "pack_id": "ntpc-interior-procedure",
+  "enabled": true,
+  "jurisdiction": {"central": "TW", "local": "ntpc"},
+  "case_type": "室內裝修",
+  "domain_tags": ["procedure", "ntpc_local", "completion_inspection", "simple_interior"],
+  "source_units": [
+    {
+      "source_id": "ntpc-interior-review-rule",
+      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
+      "source_title": "新北市建築物室內裝修審核及查驗作業事項規範",
+      "source_type": "requirement_item",
+      "authority": "NTPC",
+      "authority_rank": 3,
+      "license_status": "official_reference_only",
+      "crawl_policy": "official_reference_only",
+      "effective_date": "2026-07-06",
+      "amendment_date": "2026-07-06",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["圖說審核", "竣工查驗", "簡易室內裝修"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗", "簡易室內裝修"],
+      "domain_tags": ["procedure", "ntpc_local"],
+      "source_adapter_id": "ntpc-official-portal",
+      "text": "新北室內裝修程序分為圖說審核、竣工查驗、變更使用併室內裝修竣工查驗與簡易室內裝修。"
+    },
+    {
+      "source_id": "ntpc-completion-eservice",
+      "source_url": "https://service.ntpc.gov.tw/",
+      "source_title": "新北市竣工查驗線上申辦參考",
+      "source_type": "eservice_reference",
+      "authority": "NTPC",
+      "authority_rank": 3,
+      "license_status": "official_reference_only",
+      "crawl_policy": "official_reference_only",
+      "effective_date": "2026-07-06",
+      "amendment_date": "2026-07-06",
+      "retrieved_at": "2026-07-06T00:00:00Z",
+      "as_of_date": "2026-07-06",
+      "tags": ["竣工材料書", "材料計算表", "防火區劃照片", "消防文件"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": ["竣工查驗"],
+      "domain_tags": ["procedure", "completion_inspection", "ntpc_local"],
+      "source_adapter_id": "ntpc-eservice-reference",
+      "text": "新北竣工查驗 packet 應列出竣工圖說、材料文件、消防文件與照片 manifest，缺項不得補完臆測。"
+    }
+  ]
+}
