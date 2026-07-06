@@ -4,7 +4,7 @@
 
 本專案從 `cc-crossbeam` 的文件審查與補正回覆流程映射而來，但不直接移植美國 ADU 法規邏輯。現階段先建立 `tw-law-mcp`：一個可由 Codex、Claude Code 或其他 agent host 呼叫的 deterministic、source-bound MCP 工具，用來查詢台灣／新北市室內裝修相關的 P0 法規與程序資料。
 
-GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓已安裝 Codex App 的使用者快速完成 clone、MCP 啟動、Phase acceptance 與資料邊界確認。
+GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓已安裝 Codex App 的使用者快速完成 clone、MCP 啟動、Phase acceptance、scenario matrix acceptance 與資料邊界確認。
 
 ## 目前定位（v0.3 對齊）
 
@@ -56,6 +56,7 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 - `procedure_stage`：支援 `圖說審核`、`竣工查驗`、`變更使用併室內裝修竣工查驗`、`簡易室內裝修`，對應不同 required_documents。
 - `data_governance_state`：`run_audit_gates` 會檢核 consent、retention、raw/masked 政策、PII 偵測/遮罩與刪除/稽核旗標是否齊備。
 - `source_license_status` 與 `source_authority_rank` 已明確分離；`claim_supported` 僅供 fail-closed 降級，不作最終法規裁量。
+
 ## 與 upstream cc-crossbeam 的映射
 
 原始 `cc-crossbeam` 是 California ADU permit assistant。本專案採用其產品流程概念，而不是法規內容：
@@ -177,6 +178,8 @@ python3 -m unittest discover -s tests
 `fixtures/g2_baseline.json` 是 G2 contract baseline：12 份 synthetic de-identified cases、84 個 atomic correction items。此 baseline 用來驗證 schema、gate 與 HITL flow contract，不包含真實姓名、地址、電話、身分證字號、title block 原圖、raw PDF 或 raw drawing。真實去識別案件導入前，必須維持相同欄位與 raw/masked 分流規則。
 
 `fixtures/tw_scenario_queries.json` 是台灣場景矩陣 baseline：每題宣告 scenario category、預期 corpus packs、tool boundary、artifact、gate、HITL policy 與禁止輸出。它先驗證 contract coverage，不代表所有正式 corpus pack 已完成 ingestion。
+
+目前 scenario matrix 覆蓋 `procedure`、`fire_equipment`、`fire_compartment`、`material`、`completion_packet`、`response_draft` 六類 MVP scenarios，另含 `web_fallback` 作為 corpus miss 的 fail-closed plan-only 行為。
 
 ## Phase Acceptance 狀態
 
