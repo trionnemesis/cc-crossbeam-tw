@@ -4,7 +4,6 @@ import hashlib
 import json
 import tomllib
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -70,9 +69,38 @@ def _checksum(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def _is_cjk(char: str) -> bool:
+    return "\u4e00" <= char <= "\u9fff"
+
+
 def _normalize_terms(query: str) -> list[str]:
-    normalized = query.replace("/", " ").replace("\n", " ").replace("\r", " ").replace("\t", " ")
-    return [term.lower() for term in normalized.split() if term]
+    normalized = query
+    for separator in "/\n\r\t ，,。；;：:、（）()[]{}":
+        normalized = normalized.replace(separator, " ")
+
+    terms = []
+    for raw_term in normalized.split():
+        term = raw_term.lower()
+        cjk_chars = "".join(char for char in term if _is_cjk(char))
+        if cjk_chars:
+            if len(cjk_chars) <= 2:
+                terms.append(cjk_chars)
+            else:
+                terms.extend(cjk_chars[index : index + 2] for index in range(len(cjk_chars) - 1))
+            non_cjk = "".join(char if not _is_cjk(char) else " " for char in term)
+            terms.extend(part for part in non_cjk.split() if part)
+            continue
+        terms.append(term)
+    return list(dict.fromkeys(term for term in terms if term))
+
+
+def _effective_as_of(record: dict[str, Any], as_of_date: str | None) -> bool:
+    if not as_of_date:
+        return True
+    effective_date = record.get("effective_date")
+    if not isinstance(effective_date, str) or not effective_date:
+        return False
+    return effective_date <= as_of_date
 
 
 def _first_marker_value(line: str, markers: tuple[str, ...]) -> str | None:
@@ -125,6 +153,8 @@ class LawRepository:
         )
         entries = []
         for article in self._pack_articles(selected_packs):
+            if not _effective_as_of(article, as_of_date):
+                continue
             policy = self.get_source_policy(article["source_url"])
             entries.append(
                 {
@@ -135,9 +165,7 @@ class LawRepository:
                     "item": article["item"],
                     "effective_date": article["effective_date"],
                     "amendment_date": article["amendment_date"],
-                    "fetched_at": datetime.now(timezone.utc)
-                    .isoformat(timespec="seconds")
-                    .replace("+00:00", "Z"),
+                    "fetched_at": self._retrieved_at_for_source_url(article["source_url"]),
                     "source_url": article["source_url"],
                     "source_authority_rank": article["source_authority_rank"],
                     "source_license_status": article["source_license_status"],
@@ -171,6 +199,8 @@ class LawRepository:
                 continue
             if authority and article["authority"] != authority:
                 continue
+            if not _effective_as_of(article, as_of_date):
+                continue
             article_text = article["text"].lower()
             article_name = article["law_name"].lower()
             score = sum(
@@ -193,6 +223,16 @@ class LawRepository:
     ) -> dict[str, Any]:
         for article in self.data["articles"]:
             if article["law_id"] == law_id and article["article"] == article_no:
+                if not _effective_as_of(article, as_of_date):
+                    return {
+                        "exists": False,
+                        "law_id": law_id,
+                        "article": article_no,
+                        "as_of_date": as_of_date,
+                        "effective_date": article.get("effective_date"),
+                        "diff": "not_effective_as_of",
+                        "human_review_required": True,
+                    }
                 return self._public_article(article, score=None, as_of_date=as_of_date)
         return {
             "exists": False,
@@ -327,6 +367,17 @@ class LawRepository:
                 continue
             if rule["rule_name"] != rule_name:
                 continue
+            if not _effective_as_of(rule, as_of_date):
+                return {
+                    "jurisdiction": normalized_jurisdiction,
+                    "rule_name": rule_name,
+                    "as_of_date": as_of_date,
+                    "exists": False,
+                    "effective_date": rule.get("effective_date"),
+                    "diff": "not_effective_as_of",
+                    "human_review_required": True,
+                    "required_documents": [],
+                }
             return {
                 "jurisdiction": normalized_jurisdiction,
                 "exists": True,
@@ -355,25 +406,36 @@ class LawRepository:
         text: str | None = None,
     ) -> dict[str, Any]:
         files = files or []
-        haystack = " ".join(files + ([text] if text else []))
-        haystack_lower = haystack.lower()
         evidence_map = {
             "違建項目簽證表": ["違建項目簽證表", "違建項目簽證"],
-            "違建相片": ["違建相片", "違建照片", "illeg"],
-            "圖說斜線標示": ["斜線標示", "斜線", "違建範圍標示", "違建範圍"],
+            "違建相片": ["違建相片", "違建照片", "illegal construction photo"],
+            "圖說斜線標示": ["違建範圍標示", "違建範圍", "斜線標示", "斜線"],
             "公文文字提及": ["違建", "違章建築", "違章"],
-            "其他附件": ["附件", "附件清單", "違建相關附件", "附件資料"],
+            "其他附件": ["違建相關附件", "違建附件", "違建附件資料"],
         }
 
         evidence_types = []
         source_span = None
+        sources = [("file", file_name) for file_name in files]
+        if text:
+            sources.append(("text", text))
         for name, markers in evidence_map.items():
-            for marker in markers:
-                idx = haystack_lower.find(marker)
-                if idx >= 0:
+            for source_kind, source_text in sources:
+                source_lower = source_text.lower()
+                matched = False
+                for marker in markers:
+                    idx = source_lower.find(marker.lower())
+                    if idx < 0:
+                        continue
                     evidence_types.append(name)
-                    if source_span is None and text is not None:
-                        source_span = text[max(0, idx - 30) : idx + len(marker) + 30]
+                    if source_span is None:
+                        if source_kind == "text":
+                            source_span = source_text[max(0, idx - 30) : idx + len(marker) + 30]
+                        else:
+                            source_span = source_text
+                    matched = True
+                    break
+                if matched:
                     break
 
         return {
@@ -1317,8 +1379,10 @@ class LawRepository:
         files: list[dict[str, Any]] | None = None,
         jurisdiction: str = "ntpc",
         procedure_stage: str | None = None,
-        as_of_date: str = "2026-07-06",
+        as_of_date: str | None = None,
     ) -> dict[str, Any]:
+        resolved_as_of_date = as_of_date or self._default_as_of_date()
+        as_of_date_basis = "user_supplied_date" if as_of_date else "corpus_as_of_date"
         file_names = [file.get("filename", "") for file in (files or [])]
         parsed = self.parse_masked_document(text=text, jurisdiction=jurisdiction, files=file_names)
         if procedure_stage:
@@ -1338,7 +1402,9 @@ class LawRepository:
             jurisdiction={"central": "TW", "local": jurisdiction},
             case_type="室內裝修",
             procedure_stage=stage,
-            as_of_date=as_of_date,
+            as_of_date=resolved_as_of_date,
+            as_of_date_basis=as_of_date_basis,
+            user_supplied_date=as_of_date,
         )
         scenario = self.resolve_tw_scenario(
             jurisdiction={"central": "TW", "local": jurisdiction},
@@ -1656,7 +1722,11 @@ class LawRepository:
                 jurisdiction=jurisdiction,
                 case_type=case_type,
                 procedure_stage=procedure_stage,
-                as_of_date=case.get("as_of_date", "2026-07-06"),
+                as_of_date=case.get("as_of_date") or self._default_as_of_date(),
+                as_of_date_basis="user_supplied_date"
+                if case.get("as_of_date")
+                else "corpus_as_of_date",
+                user_supplied_date=case.get("as_of_date"),
             )
             sheet_manifest = self.build_sheet_manifest(case.get("file_metadata", []))
             procedure_stage_signal = {
@@ -1764,6 +1834,29 @@ class LawRepository:
             packs.append(pack)
         return packs
 
+    def _retrieved_at_for_source_url(self, source_url: str) -> str | None:
+        for pack in self._load_source_packs():
+            for unit in pack.get("source_units", []):
+                if unit.get("source_url") == source_url:
+                    return unit.get("retrieved_at")
+        return None
+
+    def _default_as_of_date(self) -> str:
+        dates = [
+            unit.get("as_of_date")
+            for pack in self._load_source_packs()
+            for unit in pack.get("source_units", [])
+            if isinstance(unit.get("as_of_date"), str)
+        ]
+        if dates:
+            return max(dates)
+        article_dates = [
+            article.get("effective_date")
+            for article in self.data.get("articles", [])
+            if isinstance(article.get("effective_date"), str)
+        ]
+        return max(article_dates) if article_dates else "1970-01-01"
+
     def _source_unit_refs(self, domain_tag: str) -> list[dict[str, Any]]:
         return [
             {
@@ -1797,20 +1890,35 @@ class LawRepository:
     def _acceptance_gate_item(self, item: dict[str, Any]) -> dict[str, Any]:
         article_meta = self._find_article(item.get("law_name"), item.get("article"))
         gate_item = dict(item)
+        if not article_meta:
+            gate_item.setdefault("source_authority_rank", 5)
+            gate_item.setdefault("source_license_status", "unknown")
+            gate_item["citation_status"] = "unresolved"
+            gate_item["claim_supported"] = False
+            gate_item["claim_support_confidence"] = 0.0
+            gate_item["claim_support_rationale"] = "找不到可比對的法源條文。"
+            gate_item["human_review_required"] = True
+            return gate_item
+
         gate_item["source_authority_rank"] = article_meta.get("source_authority_rank", 5)
         gate_item["source_license_status"] = article_meta.get(
             "source_license_status",
             "unknown",
         )
-        gate_item["claim_supported"] = True
-        gate_item["claim_support_confidence"] = 0.9
+        gate_item["citation_status"] = "verified"
+        support = self.check_claim_support(
+            article_text=article_meta.get("text", ""),
+            claim=str(item.get("text", "")),
+            context=str(item.get("source_span", "")),
+        )
+        gate_item["claim_supported"] = support["supported"]
+        gate_item["claim_support_confidence"] = support["confidence"]
+        gate_item["claim_support_rationale"] = support["rationale"]
+        gate_item["human_review_required"] = not support["supported"]
         return gate_item
 
     def _analysis_gate_item(self, item: dict[str, Any]) -> dict[str, Any]:
-        gate_item = self._acceptance_gate_item(item)
-        gate_item["claim_supported"] = True
-        gate_item["claim_support_confidence"] = 0.9
-        return gate_item
+        return self._acceptance_gate_item(item)
 
     @staticmethod
     def _draft_has_no_forbidden_claims(lines: list[str]) -> bool:
@@ -2020,8 +2128,8 @@ class LawRepository:
     def normalize_atomic_correction_items(
         self,
         document_parsed: dict[str, Any],
-        law_name: str = "建築物室內裝修管理辦法",
-        article: str = "23",
+        law_name: str | None = None,
+        article: str | None = None,
     ) -> dict[str, Any]:
         correction_lines = []
         for section in ("說明", "辦法", "附件"):
@@ -2029,6 +2137,10 @@ class LawRepository:
         if not correction_lines and document_parsed.get("subject"):
             correction_lines.append(document_parsed["subject"])
 
+        article_meta = self._find_article(law_name, article) if law_name and article else {}
+        citation_status = "verified" if article_meta else "unresolved"
+        source_authority_rank = article_meta.get("source_authority_rank", 5)
+        source_license_status = article_meta.get("source_license_status", "unknown")
         items = []
         for index, line in enumerate(correction_lines, start=1):
             parts = [
@@ -2047,11 +2159,13 @@ class LawRepository:
                         "text": part,
                         "law_name": law_name,
                         "article": article,
-                        "source_authority_rank": 2,
-                        "source_license_status": "open_data_reusable",
+                        "citation_status": citation_status,
+                        "source_authority_rank": source_authority_rank,
+                        "source_license_status": source_license_status,
                         "claim_supported": False,
                         "claim_support_confidence": 0.0,
                         "adjudication": "需人工認定" if "確認" in part or "簽章" in part else "缺失待補",
+                        "human_review_required": citation_status != "verified",
                     }
                 )
 
@@ -2286,7 +2400,12 @@ class LawRepository:
     @staticmethod
     def _as_of_basis(as_of_date_basis: str, user_supplied_date: str | None) -> list[str]:
         normalized_basis = as_of_date_basis or "run_date"
-        if normalized_basis not in {"document_issue_date", "run_date", "user_supplied_date"}:
+        if normalized_basis not in {
+            "document_issue_date",
+            "run_date",
+            "user_supplied_date",
+            "corpus_as_of_date",
+        }:
             normalized_basis = "run_date"
         basis = [normalized_basis, "run_date"]
         if user_supplied_date:
@@ -2354,23 +2473,30 @@ class LawRepository:
             "downgraded_items": [],
         }
 
-    @staticmethod
-    def _gate_citation_exists(correction_items: list[dict[str, Any]]) -> dict[str, Any]:
+    def _gate_citation_exists(self, correction_items: list[dict[str, Any]]) -> dict[str, Any]:
         failing = []
         for idx, item in enumerate(correction_items):
-            if not isinstance(item.get("law_name"), str) or not isinstance(item.get("article"), str):
+            law_name = item.get("law_name")
+            article = item.get("article")
+            if item.get("citation_status") == "unresolved":
+                failing.append(idx)
+                continue
+            if not isinstance(law_name, str) or not isinstance(article, str):
+                failing.append(idx)
+                continue
+            if not self.verify_citation(law_name=law_name, article_no=article)["exists"]:
                 failing.append(idx)
         if not failing:
             return {
                 "gate": "citation_exists",
                 "status": "passed",
-                "reason": "all_items_have_citation_fields",
+                "reason": "all_items_have_verified_citations",
                 "downgraded_items": [],
             }
         return {
             "gate": "citation_exists",
             "status": "failed",
-            "reason": "citation_fields_missing_or_invalid",
+            "reason": "citation_missing_invalid_or_unresolved",
             "downgraded_items": failing,
             "details": [{"index": idx} for idx in failing],
         }

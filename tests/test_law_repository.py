@@ -30,6 +30,13 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertRegex(top["checksum"], r"^[0-9a-f]{64}$")
         self.assertGreater(top["score"], 0)
 
+    def test_search_law_matches_unspaced_chinese_query_terms(self):
+        results = self.repo.search_law("室內裝修圖說審核文件", as_of_date="2026-07-06")
+
+        self.assertGreaterEqual(len(results), 1)
+        self.assertEqual(results[0]["law_name"], "建築物室內裝修管理辦法")
+        self.assertGreater(results[0]["score"], 0)
+
     def test_get_article_and_verify_citation_use_as_of_snapshot(self):
         article = self.repo.get_article(
             law_id="building-interior-renovation-regulations",
@@ -47,6 +54,32 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertTrue(citation["exists"])
         self.assertEqual(citation["canonical_name"], "建築物室內裝修管理辦法")
         self.assertEqual(citation["rank"], 2)
+
+    def test_as_of_date_filters_future_effective_articles(self):
+        snapshot = self.repo.build_law_snapshot(
+            jurisdiction={"central": "TW", "local": "ntpc"},
+            case_type="室內裝修",
+            procedure_stage="圖說審核",
+            as_of_date="2020-01-01",
+        )
+        search_results = self.repo.search_law("室內裝修", as_of_date="2020-01-01")
+        article = self.repo.get_article(
+            law_id="building-interior-renovation-regulations",
+            article_no="23",
+            as_of_date="2020-01-01",
+        )
+        rule = self.repo.get_local_rule(
+            jurisdiction="ntpc",
+            rule_name="新北市建築物室內裝修審核及查驗作業事項規範",
+            as_of_date="2020-01-01",
+        )
+
+        self.assertEqual(snapshot["entries"], [])
+        self.assertEqual(search_results, [])
+        self.assertFalse(article["exists"])
+        self.assertEqual(article["diff"], "not_effective_as_of")
+        self.assertFalse(rule["exists"])
+        self.assertEqual(rule["diff"], "not_effective_as_of")
 
     def test_missing_citation_fails_closed(self):
         citation = self.repo.verify_citation(
@@ -129,7 +162,7 @@ class LawRepositoryTests(unittest.TestCase):
     def test_phase_acceptance_covers_all_roadmap_gates(self):
         acceptance = self.repo.run_phase_acceptance()
 
-        self.assertTrue(acceptance["all_passed"])
+        self.assertFalse(acceptance["all_passed"])
         self.assertTrue(
             {
                 "p0_source_policy",
@@ -144,11 +177,19 @@ class LawRepositoryTests(unittest.TestCase):
                 "two_stage_flow",
             }.issubset(set(acceptance["gates"]))
         )
-        self.assertTrue(all(acceptance["gates"].values()))
+        self.assertFalse(acceptance["gates"]["g2_fixture_baseline"])
+        self.assertTrue(
+            all(
+                passed
+                for gate, passed in acceptance["gates"].items()
+                if gate != "g2_fixture_baseline"
+            )
+        )
         self.assertEqual(
             acceptance["details"]["g2_fixture_baseline"]["atomic_item_count"],
             84,
         )
+        self.assertEqual(len(acceptance["details"]["g2_fixture_baseline"]["failed_cases"]), 12)
         self.assertEqual(
             acceptance["details"]["metadata_extraction"]["agent_input_policy"],
             "metadata_only_no_raw_drawing_or_document_content",
@@ -336,6 +377,24 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertIn("source_policy_state", snapshot)
         self.assertTrue(snapshot["source_policy_state"])
 
+    def test_build_law_snapshot_uses_deterministic_source_retrieval_time(self):
+        first = self.repo.build_law_snapshot(
+            jurisdiction={"central": "TW", "local": "ntpc"},
+            case_type="室內裝修",
+            procedure_stage="圖說審核",
+            as_of_date="2026-07-06",
+        )
+        second = self.repo.build_law_snapshot(
+            jurisdiction={"central": "TW", "local": "ntpc"},
+            case_type="室內裝修",
+            procedure_stage="圖說審核",
+            as_of_date="2026-07-06",
+        )
+
+        self.assertEqual(first["entries"], second["entries"])
+        retrieved_at_values = {unit["retrieved_at"] for unit in self.repo.list_source_units()}
+        self.assertTrue(all(entry["fetched_at"] in retrieved_at_values for entry in first["entries"]))
+
     def test_claim_support_fails_opened_for_unmatched_claim(self):
         support = self.repo.check_claim_support(
             article_text="室內裝修須提交申請書與圖說。",
@@ -344,6 +403,15 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertFalse(support["supported"])
         self.assertLess(support["confidence"], 0.6)
         self.assertEqual(support["unsupported_reason"], "claim 支持不足，需降級人工確認")
+
+    def test_claim_support_uses_chinese_partial_term_matching(self):
+        support = self.repo.check_claim_support(
+            article_text="申請室內裝修審核時，應檢附申請書與室內裝修圖說。",
+            claim="室內裝修圖說審核文件",
+        )
+
+        self.assertTrue(support["supported"])
+        self.assertGreaterEqual(support["confidence"], 0.6)
 
     def test_illegal_construction_reference_only_flags_for_manual_confirmation(self):
         signal = self.repo.detect_illegal_construction_reference(
@@ -354,6 +422,25 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertTrue(signal["present"])
         self.assertIn("違建項目簽證表", signal["evidence_type"])
         self.assertIn("僅標記文件存在與需人工確認", signal["handling"])
+
+    def test_illegal_construction_reference_does_not_flag_generic_attachments(self):
+        signal = self.repo.detect_illegal_construction_reference(
+            files=["申請書附件.pdf"],
+            text="請檢附申請書附件資料。",
+        )
+
+        self.assertFalse(signal["present"])
+        self.assertFalse(signal["required_attachment_detected"])
+        self.assertEqual(signal["evidence_type"], [])
+
+    def test_illegal_construction_source_span_uses_text_offsets(self):
+        signal = self.repo.detect_illegal_construction_reference(
+            files=["很長的檔名前綴讓 haystack index 與 text index 不同.pdf"],
+            text="第一段一般說明。第二段請補違建範圍標示與照片供人工確認。",
+        )
+
+        self.assertTrue(signal["present"])
+        self.assertIn("違建範圍標示", signal["source_span"])
 
     def test_get_local_rule_resolves_ntpc_registry(self):
         rule = self.repo.get_local_rule(
@@ -387,10 +474,14 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertEqual(acceptance["atomic_item_count"], 84)
         self.assertEqual(acceptance["snapshot_count"], 12)
         self.assertGreaterEqual(acceptance["sheet_manifest_count"], 12)
-        self.assertEqual(acceptance["failed_cases"], [])
-        self.assertEqual(acceptance["gate_failures"], [])
-        self.assertTrue(acceptance["all_cases_passed"])
-        self.assertTrue(all(case["audit_status"] == "passed" for case in acceptance["case_results"]))
+        self.assertEqual(len(acceptance["failed_cases"]), 12)
+        self.assertTrue(acceptance["gate_failures"])
+        self.assertEqual(
+            {failure["gate"] for failure in acceptance["gate_failures"]},
+            {"claim_supported"},
+        )
+        self.assertFalse(acceptance["all_cases_passed"])
+        self.assertTrue(all(case["audit_status"] == "failed" for case in acceptance["case_results"]))
 
     def test_extract_file_metadata_never_allows_raw_drawing_content_for_agent(self):
         metadata = self.repo.extract_file_metadata(
@@ -435,6 +526,34 @@ class LawRepositoryTests(unittest.TestCase):
             "需人工認定",
             {item["adjudication"] for item in normalized["atomic_correction_items"]},
         )
+
+    def test_normalize_atomic_items_does_not_invent_citations(self):
+        normalized = self.repo.normalize_atomic_correction_items(
+            {"sections": {"說明": ["請補消防設備相關文件。"]}}
+        )
+
+        item = normalized["atomic_correction_items"][0]
+        self.assertIsNone(item["law_name"])
+        self.assertIsNone(item["article"])
+        self.assertEqual(item["citation_status"], "unresolved")
+        self.assertEqual(item["source_license_status"], "unknown")
+        self.assertTrue(item["human_review_required"])
+
+    def test_run_tw_corrections_analysis_fails_claim_gate_without_support(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "主旨：室內裝修圖說審核補正通知\n"
+                "說明一：請補外星通道許可文件。"
+            ),
+            procedure_stage="圖說審核",
+            as_of_date="2026-07-06",
+        )
+        run_meta = analysis["artifacts"]["run_meta.json"]
+        gate_status = {gate["gate"]: gate["status"] for gate in run_meta["gate_results"]}
+
+        self.assertFalse(run_meta["all_passed"])
+        self.assertEqual(gate_status["claim_supported"], "failed")
 
     def test_build_sheet_manifest_and_hitl_confirmation_packet(self):
         manifest = self.repo.build_sheet_manifest(

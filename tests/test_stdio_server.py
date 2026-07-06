@@ -430,8 +430,15 @@ class StdioServerTests(unittest.TestCase):
             self.assertEqual(packaging_payload["decision"], "standalone_mcp_server_first")
 
             phase_payload = json.loads(phase_acceptance["result"]["content"][0]["text"])
-            self.assertTrue(phase_payload["all_passed"])
-            self.assertTrue(all(phase_payload["gates"].values()))
+            self.assertFalse(phase_payload["all_passed"])
+            self.assertFalse(phase_payload["gates"]["g2_fixture_baseline"])
+            self.assertTrue(
+                all(
+                    passed
+                    for gate, passed in phase_payload["gates"].items()
+                    if gate != "g2_fixture_baseline"
+                )
+            )
             self.assertIn("scenario_matrix", phase_payload["gates"])
 
             scenario_payload = json.loads(scenario_acceptance["result"]["content"][0]["text"])
@@ -465,10 +472,14 @@ class StdioServerTests(unittest.TestCase):
             self.assertIn("procedure_stage_signal", parsed_payload)
 
             acceptance_payload = json.loads(fixture_acceptance["result"]["content"][0]["text"])
-            self.assertTrue(acceptance_payload["all_cases_passed"])
+            self.assertFalse(acceptance_payload["all_cases_passed"])
             self.assertEqual(acceptance_payload["case_count"], 12)
             self.assertEqual(acceptance_payload["atomic_item_count"], 84)
-            self.assertEqual(acceptance_payload["failed_cases"], [])
+            self.assertEqual(len(acceptance_payload["failed_cases"]), 12)
+            self.assertEqual(
+                {failure["gate"] for failure in acceptance_payload["gate_failures"]},
+                {"claim_supported"},
+            )
 
             hitl_payload = json.loads(hitl_confirmation["result"]["content"][0]["text"])
             self.assertEqual(hitl_payload["confirmation_status"], "complete")
