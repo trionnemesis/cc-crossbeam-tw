@@ -4,6 +4,8 @@
 
 本專案從 `cc-crossbeam` 的文件審查與補正回覆流程映射而來，但不直接移植美國 ADU 法規邏輯。現階段先建立 `tw-law-mcp`：一個可由 Codex、Claude Code 或其他 agent host 呼叫的 deterministic、source-bound MCP 工具，用來查詢台灣／新北市室內裝修相關的 P0 法規與程序資料。
 
+目前 implementation 已完成到 Phase 2.1-2.6 / Step 6：split data layout、source adapter contracts、scenario MCP tools、hardened scenario matrix evaluation，以及 two-stage contractor flow skeleton 都有 repeatable acceptance gates。
+
 GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓已安裝 Codex App 的使用者快速完成 clone、MCP 啟動、Phase acceptance、scenario matrix acceptance 與資料邊界確認。
 
 ## 目前定位（v0.3 對齊）
@@ -17,6 +19,20 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)，用途是讓
 ## 不是法律判斷工具
 
 本專案只做來源可追溯的文件輔助與流程整理，不提供法律意見、合規保證、違章認定或審查必過承諾。Agent 回答必須保留來源、日期、適用範圍與不確定性，不能把工具輸出包裝成最終法律結論。
+
+## 在 Codex App 裡可以怎麼問
+
+本機 MCP 設定完成後，可以在 Codex App 內要求 `tw-law-mcp` 先驗證工具狀態，再依已遮罩資料與 metadata 做程序分流。建議 prompt：
+
+```text
+請使用 tw-law-mcp 先跑 run_phase_acceptance。
+接著根據我提供的已遮罩文件文字與檔案 metadata，判斷目前比較接近：
+圖說審核、竣工查驗、變更使用併室內裝修竣工查驗、簡易室內裝修。
+請輸出 procedure_stage 信心分數、需要的人工確認問題、會用到的 corpus packs、產出的 artifacts，以及不能判定的原因。
+不要輸出法律意見、合規保證、消防設計結論、材料真偽結論或審查必過承諾。
+```
+
+可行邊界是「程序分流、文件整理、來源與 gate 追蹤」；不是「自動判定案件合法、替代建築師／消防專業簽證、或直接審查 raw drawing」。若資料仍含姓名、地址、電話、身分證字號、title block 或 raw PDF/drawing，應先遮罩或只提供 metadata。
 
 ## 已完成能力
 

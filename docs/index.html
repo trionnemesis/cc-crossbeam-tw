@@ -6,7 +6,7 @@
     <title>cc-crossbeam-tw | Codex App 快速上手</title>
     <meta
       name="description"
-      content="給已安裝 Codex App 的使用者：快速啟動 cc-crossbeam-tw 與 tw-law-mcp，跑完台灣室內裝修文件助手的 Phase acceptance 與 scenario matrix acceptance。"
+      content="給已安裝 Codex App 的使用者：快速啟動 cc-crossbeam-tw 與 tw-law-mcp，驗證完成至 Step 6 的台灣室內裝修文件助手 MCP workflow。"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -17,10 +17,11 @@
           <p class="eyebrow">Codex App onboarding for tw-law-mcp</p>
           <h1>cc-crossbeam-tw</h1>
           <p class="lead">
-            台灣建築／室內裝修審查文件助手原型。這個頁面給已安裝 Codex App 的使用者，用最短路徑把 repo 拉下來、啟用 MCP、跑完驗收，再開始做文件輔助流程。
+            台灣建築／室內裝修審查文件助手原型。這個頁面給已安裝 Codex App 的使用者，用最短路徑把 repo 拉下來、啟用 MCP、跑完驗收，再開始做文件輔助流程。目前已完成到 Step 6：split data、source adapters、scenario tools、hardened evaluation 與 two-stage contractor flow。
           </p>
           <div class="hero-actions">
             <a class="button" href="#start">開始設定</a>
+            <a class="button secondary" href="#ask">Codex 提問範例</a>
             <a class="button secondary" href="#safety">資料邊界</a>
           </div>
         </div>
@@ -170,10 +171,23 @@ python3 scripts/run_source_adapter_acceptance.py</code></pre>
         </div>
       </section>
 
-      <section>
+      <section id="ask">
         <div class="section-inner">
           <h2>使用範例：指令與期望回答</h2>
           <div class="steps">
+            <article class="step">
+              <div class="step-number">0</div>
+              <div>
+                <h3>判斷上傳資料屬於哪個程序</h3>
+                <p>適合你已經完成 local MCP 設定，並提供已遮罩公文文字、檔案 metadata 或 sheet manifest 後使用。</p>
+                <pre><code>請使用 tw-law-mcp 先跑 run_phase_acceptance。
+接著根據我提供的已遮罩文件文字與檔案 metadata，判斷目前比較接近：
+圖說審核、竣工查驗、變更使用併室內裝修竣工查驗、簡易室內裝修。
+請輸出 procedure_stage 信心分數、需要的人工確認問題、會用到的 corpus packs、產出的 artifacts，以及不能判定的原因。
+不要輸出法律意見、合規保證、消防設計結論、材料真偽結論或審查必過承諾。</code></pre>
+                <p>期望回答結果：Codex 應先驗證 MCP gates，再使用 <code>resolve_procedure_stage_confidence</code>、<code>resolve_tw_scenario</code> 與 two-stage flow artifacts 做程序分流；低信心、缺資料或需要專業判斷時，必須輸出 human review required，而不是硬判定。</p>
+              </div>
+            </article>
             <article class="step">
               <div class="step-number">1</div>
               <div>
