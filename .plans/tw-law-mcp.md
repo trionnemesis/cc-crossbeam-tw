@@ -4,6 +4,24 @@
 
 Build `tw-law-mcp` as the reusable domain boundary first. Keep Codex and Claude Code integration as thin MCP configuration wrappers. Do not duplicate legal corpus, citation, or gate logic in host-specific plugins.
 
+## Phase 1.5 Recommendation
+
+Do not port the original `cc-crossbeam` web upload path yet. Add a governed pipeline foundation first: official-source policy comparison, `procedure_stage` confidence scoring, G2 fixture manifest tracking, metadata extraction contracts, jurisdiction registry stubs, and packaging ADR. This keeps raw design drawings out of agent prompts while making the later web integration executable.
+
+### Option A: Port the original web app now
+
+- Faster visual demo.
+- Reuses Next.js, Cloud Run, Vercel Sandbox, and Supabase patterns.
+- Raises raw drawing/PDF exposure risk before masking and fixture contracts exist.
+
+### Option B: Finish governed domain boundary first
+
+- Slower visible demo.
+- Produces deterministic, testable contracts for law sources, procedure routing, fixtures, metadata extraction, and packaging.
+- Allows later frontend/orchestrator work to use masked artifacts instead of raw drawings.
+
+**Recommendation: Option B** — The current repository has only the MCP boundary and fixture corpus. The next lowest-risk step is to finish the governed contracts that every later phase depends on.
+
 ## Phase 1 Scope
 
 - Add a deterministic P0 fixture corpus for New Taipei interior renovation review.
@@ -15,12 +33,31 @@ Build `tw-law-mcp` as the reusable domain boundary first. Keep Codex and Claude 
 - Export formal gate execution metadata (`run_meta.gates`) with per-gate status/interception/retry fields.
 - Align governance check input with v0.3 `data_governance_state` contract.
 
+## Phase 1.5 Scope
+
+- Add `source_policy_comparisons` for official-source authorization and update-policy differences.
+- Add `procedure_stage` confidence scoring and HITL routing metadata.
+- Add a fixture manifest contract for G2 tracking without committing raw client drawings.
+- Add document/drawing metadata extraction contracts.
+- Add jurisdiction registry entries beyond New Taipei as disabled stubs.
+- Add ADR for Codex plugin / Claude Code plugin / standalone MCP packaging.
+
 ## Verification
 
 - `python3 -m unittest discover -s tests`
 - Stdio smoke test through `python3 -m tw_law_mcp.server`
 
+## Phase 1.5 Verification
+
+- `python3 -m unittest discover -s tests`
+- Source policy comparison returns rank/license/update/crawl distinctions for every P0 source.
+- Low-confidence or ambiguous `procedure_stage` requires HITL.
+- Fixture manifest reports G2 incomplete until `case_count >= 12` and `atomic_item_count >= 80`.
+- Disabled jurisdiction stubs fail closed for active procedures.
+
 ## Deferred
 
 - Full law corpus ingestion.
 - Full Codex and Claude Code plugin packaging.
+- Raw drawing upload and full web app integration.
+- BC-7 illegal construction adjudication.

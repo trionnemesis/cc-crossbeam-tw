@@ -132,6 +132,56 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "compare_source_policies",
+        "description": "Return official-source authorization and update-policy differences for P0 sources.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "run_source_policy_acceptance",
+        "description": "Verify P0 article sources have complete official-source policy evidence and comparison coverage.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "list_jurisdictions",
+        "description": "List enabled jurisdiction registry entries, optionally including disabled stubs.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "include_disabled": {"type": "boolean"},
+            },
+        },
+    },
+    {
+        "name": "run_jurisdiction_registry_acceptance",
+        "description": "Verify jurisdiction registry entries are enabled or fail-closed with law-pack coverage.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "run_packaging_acceptance",
+        "description": "Verify Codex and Claude Code wrappers preserve standalone MCP server packaging strategy.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "run_phase_acceptance",
+        "description": "Run aggregate acceptance for all roadmap Phase gates.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
         "name": "resolve_procedure_requirements",
         "description": "Return stage-specific New Taipei interior renovation procedure requirements.",
         "inputSchema": {
@@ -141,6 +191,128 @@ TOOL_SCHEMAS: list[JSON] = [
                 "jurisdiction": {"type": "string"},
             },
             "required": ["stage", "jurisdiction"],
+        },
+    },
+    {
+        "name": "resolve_procedure_stage_confidence",
+        "description": "Score procedure_stage confidence from document text and file metadata; low confidence routes to HITL.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+                "jurisdiction": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "get_fixture_baseline_status",
+        "description": "Report whether the de-identified fixture baseline satisfies G2.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "run_fixture_pipeline_acceptance",
+        "description": "Run the synthetic G2 fixture baseline through snapshot, sheet, HITL, and audit-gate acceptance.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "extract_file_metadata",
+        "description": "Extract metadata-only file contract fields without allowing raw drawing/document content into agent input.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["files"],
+        },
+    },
+    {
+        "name": "parse_masked_document",
+        "description": "Parse masked Taiwan official-document text into document_parsed fields and procedure-stage signal.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "jurisdiction": {"type": "string"},
+                "files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "normalize_atomic_correction_items",
+        "description": "Normalize parsed document sections into atomic correction items with source spans.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "document_parsed": {"type": "object"},
+                "law_name": {"type": "string"},
+                "article": {"type": "string"},
+            },
+            "required": ["document_parsed"],
+        },
+    },
+    {
+        "name": "build_sheet_manifest",
+        "description": "Build sheet_manifest metadata from drawing/source snapshot filenames without reading raw pixels.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["files"],
+        },
+    },
+    {
+        "name": "build_hitl_confirmation_packet",
+        "description": "Build client_questions for low-confidence procedure stage and manual-review correction items.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "procedure_stage_signal": {"type": "object"},
+                "atomic_items": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["procedure_stage_signal", "atomic_items"],
+        },
+    },
+    {
+        "name": "apply_hitl_confirmations",
+        "description": "Apply human answers to procedure-stage and correction-item HITL questions with fail-closed validation.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "procedure_stage_signal": {"type": "object"},
+                "atomic_items": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+                "answers": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                },
+            },
+            "required": ["procedure_stage_signal", "atomic_items", "answers"],
         },
     },
     {
@@ -174,7 +346,22 @@ class TwLawMcpServer:
             "get_local_rule": self.repo.get_local_rule,
             "detect_illegal_construction_reference": self.repo.detect_illegal_construction_reference,
             "get_source_policy": self.repo.get_source_policy,
+            "compare_source_policies": self.repo.compare_source_policies,
+            "run_source_policy_acceptance": self.repo.run_source_policy_acceptance,
+            "list_jurisdictions": self.repo.list_jurisdictions,
+            "run_jurisdiction_registry_acceptance": self.repo.run_jurisdiction_registry_acceptance,
+            "run_packaging_acceptance": self.repo.run_packaging_acceptance,
+            "run_phase_acceptance": self.repo.run_phase_acceptance,
             "resolve_procedure_requirements": self.repo.resolve_procedure_requirements,
+            "resolve_procedure_stage_confidence": self.repo.resolve_procedure_stage_confidence,
+            "get_fixture_baseline_status": self.repo.get_fixture_baseline_status,
+            "run_fixture_pipeline_acceptance": self.repo.run_fixture_pipeline_acceptance,
+            "extract_file_metadata": self.repo.extract_file_metadata,
+            "parse_masked_document": self.repo.parse_masked_document,
+            "normalize_atomic_correction_items": self.repo.normalize_atomic_correction_items,
+            "build_sheet_manifest": self.repo.build_sheet_manifest,
+            "build_hitl_confirmation_packet": self.repo.build_hitl_confirmation_packet,
+            "apply_hitl_confirmations": self.repo.apply_hitl_confirmations,
             "run_audit_gates": self.repo.run_audit_gates,
         }
 

@@ -33,16 +33,16 @@ class LawRepositoryTests(unittest.TestCase):
     def test_get_article_and_verify_citation_use_as_of_snapshot(self):
         article = self.repo.get_article(
             law_id="building-interior-renovation-regulations",
-            article_no="33",
+            article_no="23",
             as_of_date="2026-07-06",
         )
         citation = self.repo.verify_citation(
             law_name="建築物室內裝修管理辦法",
-            article_no="33",
+            article_no="23",
             effective_date="2024-01-01",
         )
 
-        self.assertEqual(article["article"], "33")
+        self.assertEqual(article["article"], "23")
         self.assertIn("室內裝修圖說", article["text"])
         self.assertTrue(citation["exists"])
         self.assertEqual(citation["canonical_name"], "建築物室內裝修管理辦法")
@@ -60,13 +60,96 @@ class LawRepositoryTests(unittest.TestCase):
 
     def test_source_policy_keeps_authority_and_license_separate(self):
         policy = self.repo.get_source_policy(
-            "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070149"
+            "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070148"
         )
 
         self.assertEqual(policy["source_authority_rank"], 2)
         self.assertEqual(policy["source_license_status"], "open_data_reusable")
         self.assertEqual(policy["source_update_policy"], "adapter_checked")
         self.assertEqual(policy["crawl_policy"], "snapshot_with_checksum")
+
+    def test_compare_source_policies_tracks_license_and_update_differences(self):
+        comparisons = self.repo.compare_source_policies()
+
+        self.assertEqual(len(comparisons), 1)
+        comparison = comparisons[0]
+        self.assertEqual(
+            comparison["comparison_id"],
+            "moj-vs-ntpc-official-source-policy",
+        )
+        fields = {item["field"] for item in comparison["differences"]}
+        self.assertIn("source_license_status", fields)
+        self.assertIn("source_update_policy", fields)
+        policies = comparison["source_policy_state"]
+        self.assertEqual(
+            {policy["source_license_status"] for policy in policies},
+            {"open_data_reusable", "official_reference_only"},
+        )
+
+    def test_source_policy_acceptance_covers_all_p0_source_classes(self):
+        acceptance = self.repo.run_source_policy_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(acceptance["failures"], [])
+        self.assertEqual(acceptance["article_source_count"], 3)
+        self.assertEqual(acceptance["source_class_count"], 2)
+        self.assertEqual(acceptance["comparison_count"], 1)
+        self.assertEqual(len(acceptance["covered_source_classes"]), 2)
+
+    def test_list_jurisdictions_keeps_disabled_stubs_fail_closed(self):
+        enabled = self.repo.list_jurisdictions()
+        all_entries = self.repo.list_jurisdictions(include_disabled=True)
+
+        self.assertEqual([entry["jurisdiction"]["local"] for entry in enabled], ["ntpc"])
+        disabled = [entry for entry in all_entries if not entry["enabled"]]
+        self.assertEqual({entry["jurisdiction"]["local"] for entry in disabled}, {"tpe", "tyc"})
+        self.assertTrue(all("stub only" in entry["handling"] for entry in disabled))
+
+    def test_jurisdiction_registry_acceptance_verifies_fail_closed_expansion(self):
+        acceptance = self.repo.run_jurisdiction_registry_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(acceptance["failures"], [])
+        self.assertEqual(acceptance["registry_count"], 3)
+        self.assertEqual(acceptance["enabled_count"], 1)
+        self.assertEqual(acceptance["disabled_count"], 2)
+        self.assertEqual(acceptance["non_ntpc_count"], 2)
+
+    def test_packaging_acceptance_verifies_standalone_mcp_strategy(self):
+        acceptance = self.repo.run_packaging_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(acceptance["failures"], [])
+        self.assertEqual(acceptance["decision"], "standalone_mcp_server_first")
+        self.assertTrue(acceptance["codex_config_present"])
+        self.assertTrue(acceptance["claude_config_present"])
+        self.assertTrue(acceptance["adr_present"])
+        self.assertTrue(acceptance["standalone_entrypoint_present"])
+
+    def test_phase_acceptance_covers_all_roadmap_gates(self):
+        acceptance = self.repo.run_phase_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(
+            set(acceptance["gates"]),
+            {
+                "p0_source_policy",
+                "procedure_stage_hitl",
+                "g2_fixture_baseline",
+                "metadata_extraction",
+                "jurisdiction_registry",
+                "packaging_strategy",
+            },
+        )
+        self.assertTrue(all(acceptance["gates"].values()))
+        self.assertEqual(
+            acceptance["details"]["g2_fixture_baseline"]["atomic_item_count"],
+            84,
+        )
+        self.assertEqual(
+            acceptance["details"]["metadata_extraction"]["agent_input_policy"],
+            "metadata_only_no_raw_drawing_or_document_content",
+        )
 
     def test_resolve_procedure_requirements_is_stage_specific(self):
         drawing_review = self.repo.resolve_procedure_requirements("圖說審核", "ntpc")
@@ -78,6 +161,22 @@ class LawRepositoryTests(unittest.TestCase):
             drawing_review["required_documents"],
             completion_review["required_documents"],
         )
+
+    def test_resolve_procedure_stage_confidence_routes_ambiguous_text_to_hitl(self):
+        confident = self.repo.resolve_procedure_stage_confidence(
+            text="本案申請圖說審核，請補室內裝修圖說與簽章責任文件。",
+            jurisdiction="ntpc",
+        )
+        ambiguous = self.repo.resolve_procedure_stage_confidence(
+            text="文件同時提到圖說審核與竣工查驗，需確認程序。",
+            jurisdiction="ntpc",
+        )
+
+        self.assertEqual(confident["procedure_stage"], "圖說審核")
+        self.assertGreaterEqual(confident["confidence"], 0.8)
+        self.assertFalse(confident["human_review_required"])
+        self.assertTrue(ambiguous["human_review_required"])
+        self.assertEqual(ambiguous["reason"], "ambiguous_or_low_confidence")
 
     def test_build_law_snapshot_returns_pack_entries_with_metadata(self):
         snapshot = self.repo.build_law_snapshot(
@@ -127,12 +226,182 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertIn("procedure_stages", rule)
         self.assertEqual(rule["jurisdiction"], "ntpc")
 
+    def test_fixture_baseline_reports_g2_complete_when_targets_are_met(self):
+        status = self.repo.get_fixture_baseline_status()
+
+        self.assertEqual(status["fixture_set_id"], "g2-synthetic-deidentified-ntpc-v0")
+        self.assertEqual(status["target_case_count"], 12)
+        self.assertEqual(status["target_atomic_item_count"], 80)
+        self.assertEqual(status["case_count"], 12)
+        self.assertEqual(status["atomic_item_count"], 84)
+        self.assertFalse(status["raw_files_committed"])
+        self.assertFalse(status["invalid_cases"])
+        self.assertFalse(status["invalid_items"])
+        self.assertTrue(status["g2_complete"])
+        self.assertEqual(status["status"], "complete")
+
+    def test_fixture_pipeline_acceptance_runs_all_g2_cases_through_gates(self):
+        acceptance = self.repo.run_fixture_pipeline_acceptance()
+
+        self.assertEqual(acceptance["fixture_set_id"], "g2-synthetic-deidentified-ntpc-v0")
+        self.assertEqual(acceptance["case_count"], 12)
+        self.assertEqual(acceptance["atomic_item_count"], 84)
+        self.assertEqual(acceptance["snapshot_count"], 12)
+        self.assertGreaterEqual(acceptance["sheet_manifest_count"], 12)
+        self.assertEqual(acceptance["failed_cases"], [])
+        self.assertEqual(acceptance["gate_failures"], [])
+        self.assertTrue(acceptance["all_cases_passed"])
+        self.assertTrue(all(case["audit_status"] == "passed" for case in acceptance["case_results"]))
+
+    def test_extract_file_metadata_never_allows_raw_drawing_content_for_agent(self):
+        metadata = self.repo.extract_file_metadata(
+            files=[
+                {"filename": "review-letter.pdf", "file_type": "document_file"},
+                {"filename": "drawing-set.pdf", "file_type": "drawing_file"},
+                {"filename": "notes.txt", "file_type": "other"},
+            ]
+        )
+
+        self.assertEqual(
+            metadata["agent_input_policy"],
+            "metadata_only_no_raw_drawing_or_document_content",
+        )
+        self.assertTrue(metadata["human_review_required"])
+        self.assertTrue(all(item["metadata_only"] for item in metadata["files"]))
+        self.assertFalse(any(item["raw_content_allowed_for_agent"] for item in metadata["files"]))
+        drawing = metadata["files"][1]
+        self.assertTrue(drawing["requires_masking"])
+
+    def test_parse_masked_document_and_normalize_atomic_items(self):
+        parsed = self.repo.parse_masked_document(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "發文日期：115年7月6日\n"
+                "發文字號：REDACTED-001\n"
+                "主旨：室內裝修圖說審核補正通知\n"
+                "說明一：請補申請書、建築物權利證明文件。\n"
+                "說明二：請補室內裝修圖說與專業人員簽章確認。\n"
+            ),
+            jurisdiction="ntpc",
+        )
+        normalized = self.repo.normalize_atomic_correction_items(parsed)
+
+        self.assertEqual(parsed["agency"], "新北市政府工務局")
+        self.assertEqual(parsed["document_no"], "REDACTED-001")
+        self.assertEqual(parsed["procedure_stage_signal"]["procedure_stage"], "圖說審核")
+        self.assertFalse(parsed["procedure_stage_signal"]["human_review_required"])
+        self.assertGreaterEqual(normalized["item_count"], 4)
+        self.assertTrue(all(item["source_span"] for item in normalized["atomic_correction_items"]))
+        self.assertIn(
+            "需人工認定",
+            {item["adjudication"] for item in normalized["atomic_correction_items"]},
+        )
+
+    def test_build_sheet_manifest_and_hitl_confirmation_packet(self):
+        manifest = self.repo.build_sheet_manifest(
+            files=[
+                {"filename": "A001_室內裝修圖說.pdf", "file_type": "drawing_file"},
+                {"filename": "A002_材料表.pdf", "file_type": "drawing_file"},
+                {"filename": "letter.masked.txt", "file_type": "masked_file"},
+            ]
+        )
+        packet = self.repo.build_hitl_confirmation_packet(
+            procedure_stage_signal={
+                "procedure_stage": None,
+                "confidence": 0.5,
+                "human_review_required": True,
+                "reason": "ambiguous_or_low_confidence",
+            },
+            atomic_items=[
+                {
+                    "item_id": "auto-001",
+                    "source_span": "說明二：簽章確認",
+                    "adjudication": "需人工認定",
+                }
+            ],
+        )
+
+        self.assertEqual(manifest["sheet_count"], 2)
+        self.assertEqual(manifest["sheet_manifest"][1]["sheet_type"], "材料表")
+        self.assertFalse(any(sheet["raw_content_allowed_for_agent"] for sheet in manifest["sheet_manifest"]))
+        self.assertTrue(packet["human_review_required"])
+        self.assertEqual(packet["question_count"], 2)
+        self.assertEqual(packet["client_questions"][0]["question_key"], "confirm_procedure_stage")
+
+    def test_apply_hitl_confirmations_finalizes_stage_and_manual_items(self):
+        result = self.repo.apply_hitl_confirmations(
+            procedure_stage_signal={
+                "procedure_stage": None,
+                "confidence": 0.5,
+                "human_review_required": True,
+                "reason": "ambiguous_or_low_confidence",
+            },
+            atomic_items=[
+                {
+                    "item_id": "auto-001",
+                    "source_span": "說明二：簽章確認",
+                    "adjudication": "需人工認定",
+                }
+            ],
+            answers=[
+                {
+                    "question_key": "confirm_procedure_stage",
+                    "selected_option": "圖說審核",
+                },
+                {
+                    "question_key": "review_auto-001",
+                    "answer_text": "專業人員已確認需補簽章責任文件。",
+                },
+            ],
+        )
+
+        self.assertEqual(result["confirmation_status"], "complete")
+        self.assertFalse(result["human_review_required"])
+        self.assertEqual(result["procedure_stage_signal"]["procedure_stage"], "圖說審核")
+        self.assertEqual(result["procedure_stage_signal"]["confidence"], 1.0)
+        self.assertTrue(result["procedure_stage_signal"]["confirmed_by_human"])
+        self.assertEqual(result["atomic_correction_items"][0]["human_review_status"], "confirmed")
+        self.assertEqual(result["atomic_correction_items"][0]["adjudication"], "人工確認完成")
+        self.assertEqual(result["unanswered_questions"], [])
+        self.assertEqual(result["unknown_answers"], [])
+        self.assertEqual(result["invalid_answers"], [])
+
+    def test_apply_hitl_confirmations_fails_closed_for_missing_or_unknown_answers(self):
+        result = self.repo.apply_hitl_confirmations(
+            procedure_stage_signal={
+                "procedure_stage": None,
+                "confidence": 0.5,
+                "human_review_required": True,
+                "reason": "ambiguous_or_low_confidence",
+            },
+            atomic_items=[
+                {
+                    "item_id": "auto-001",
+                    "source_span": "說明二：簽章確認",
+                    "adjudication": "需人工認定",
+                }
+            ],
+            answers=[
+                {
+                    "question_key": "unknown_key",
+                    "answer_text": "unexpected",
+                }
+            ],
+        )
+
+        self.assertEqual(result["confirmation_status"], "incomplete")
+        self.assertTrue(result["human_review_required"])
+        self.assertIn("confirm_procedure_stage", result["unanswered_questions"])
+        self.assertIn("review_auto-001", result["unanswered_questions"])
+        self.assertEqual(result["unknown_answers"], ["unknown_key"])
+        self.assertTrue(result["procedure_stage_signal"]["human_review_required"])
+
     def test_run_audit_gates_passes_with_compliant_items(self):
         gate_meta = self.repo.run_audit_gates(
             correction_items=[
                 {
                     "law_name": "建築物室內裝修管理辦法",
-                    "article": "33",
+                    "article": "23",
                     "source_authority_rank": 2,
                     "source_license_status": "open_data_reusable",
                     "claim_supported": True,
@@ -177,7 +446,7 @@ class LawRepositoryTests(unittest.TestCase):
             correction_items=[
                 {
                     "law_name": "建築物室內裝修管理辦法",
-                    "article": "33",
+                    "article": "23",
                     "source_authority_rank": 2,
                     "source_license_status": "unknown",
                     "claim_supported": False,

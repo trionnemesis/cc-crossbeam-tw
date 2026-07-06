@@ -25,11 +25,26 @@
 - `get_article`：依 citation id 取得條文或程序片段。
 - `verify_citation`：驗證 citation id 是否存在。
 - `get_source_policy`：取得引用與回答邊界規則。
+- `compare_source_policies`：比對 P0 官方來源的授權、更新政策、crawl policy 差異。
+- `run_source_policy_acceptance`：驗證 P0 source policy evidence 與官方來源類別比較覆蓋。
+- `list_jurisdictions`：列出 jurisdiction registry；新北市以外 entries 目前 fail-closed。
+- `run_jurisdiction_registry_acceptance`：驗證 enabled jurisdiction 有 law pack/stage，disabled jurisdiction 維持 fail-closed。
+- `run_packaging_acceptance`：驗證 Codex/Claude Code wrapper 指向同一 standalone MCP server，且 ADR 決策完整。
+- `run_phase_acceptance`：聚合驗收 P0 source、procedure/HITL、G2 fixture、metadata、jurisdiction、packaging 六個 roadmap gates。
 - `resolve_procedure_requirements`：回傳室內裝修流程需求摘要。
+- `resolve_procedure_stage_confidence`：依文件文字與檔案 metadata 判定 `procedure_stage` 信心分數；低信心進 HITL。
 - `build_law_snapshot`：依 `{jurisdiction, case_type, procedure_stage, as_of_date}` 產生帶有 `source_policy_state`、`source_authority_rank`、`source_license_status` 的版本化法規快照。
 - `check_claim_support`：以低信心 fail-closed 方式做 claim 與條文文字覆蓋檢核（非法律保證）。
 - `get_local_rule`：依照 `jurisdiction + rule_name` 查詢在地規範與程序欄位（含文件欄位、授權邊界）。
 - `detect_illegal_construction_reference`：偵測違建指標文字/附件存在，但只回 `present/evidence_type/handling`，不做違建認定。
+- `extract_file_metadata`：只抽取檔案 metadata，不允許 raw drawing/document content 進 agent input。
+- `parse_masked_document`：將已遮罩公文文字轉成 `document_parsed`。
+- `normalize_atomic_correction_items`：將解析結果拆成 atomic correction items。
+- `build_sheet_manifest`：由圖說/快照檔名建立 metadata-only sheet manifest。
+- `build_hitl_confirmation_packet`：將低信心程序或需人工認定項目轉成 `client_questions`。
+- `apply_hitl_confirmations`：套用人工回答；缺答、未知 key、無效選項一律 fail-closed。
+- `get_fixture_baseline_status`：驗證 G2 fixture baseline 數量、去識別化與欄位契約。
+- `run_fixture_pipeline_acceptance`：將 G2 fixture 跑過 snapshot、sheet manifest、HITL packet 與 audit gates。
 - `run_audit_gates`：七層可回溯 gate；輸出 `run_meta.gates`（含 gate 序號、retries、intercepted）與 `run_meta.human_review_required`，供後續降級流程使用。
 
 ## v0.3 正式地方法規流程對齊摘要
@@ -57,6 +72,11 @@
 ├── pyproject.toml
 ├── scripts/
 │   ├── build_law_snapshot.py
+│   ├── run_fixture_pipeline.py
+│   ├── run_jurisdiction_registry_acceptance.py
+│   ├── run_packaging_acceptance.py
+│   ├── run_phase_acceptance.py
+│   ├── run_source_policy_acceptance.py
 │   └── tw_law_mcp_stdio.py
 ├── tests/
 │   ├── test_law_repository.py
@@ -83,6 +103,31 @@ python3 scripts/tw_law_mcp_stdio.py
 python3 scripts/build_law_snapshot.py --procedure-stage 圖說審核 --as-of-date 2026-07-06
 ```
 
+執行 G2 fixture pipeline acceptance：
+
+```bash
+python3 scripts/run_fixture_pipeline.py
+```
+
+執行 P0 source policy acceptance：
+
+```bash
+python3 scripts/run_source_policy_acceptance.py
+```
+
+執行 registry 與 packaging acceptance：
+
+```bash
+python3 scripts/run_jurisdiction_registry_acceptance.py
+python3 scripts/run_packaging_acceptance.py
+```
+
+執行全部 Phase acceptance：
+
+```bash
+python3 scripts/run_phase_acceptance.py
+```
+
 Codex 專案 MCP 設定在 `.codex/config.toml`。
 
 Claude Code 專案 MCP 設定在 `.mcp.json`。
@@ -98,13 +143,28 @@ python3 -m unittest discover -s tests
 - law repository lookup。
 - citation verification。
 - source policy boundary。
+- P0 source policy acceptance。
+- jurisdiction registry fail-closed acceptance。
+- packaging strategy acceptance。
+- aggregate Phase acceptance。
+- procedure-stage confidence + HITL confirmation loop。
+- G2 fixture pipeline acceptance。
+- metadata-only document/drawing extraction contracts。
 - stdio JSON-RPC smoke test。
 
-## 後續路線
+## Fixture Baseline
 
-- 補齊 P0 corpus 官方文件來源授權與更新政策差異比對。
-- 導入正式 `procedure_stage` 信心分數與 HITL 確認回路。
-- 以 fixture 生成 baseline：`>=12` 份去識別化案件與 `>=80` 個 atomic correction items（G2）。
-- 加入圖說／申請文件 metadata extraction。
-- 擴充新北市以外的 jurisdiction registry。
-- 評估 Codex plugin／Claude Code plugin／獨立 MCP server 的封裝策略。
+`fixtures/g2_baseline.json` 是 G2 contract baseline：12 份 synthetic de-identified cases、84 個 atomic correction items。此 baseline 用來驗證 schema、gate 與 HITL flow contract，不包含真實姓名、地址、電話、身分證字號、title block 原圖、raw PDF 或 raw drawing。真實去識別案件導入前，必須維持相同欄位與 raw/masked 分流規則。
+
+## Phase Acceptance 狀態
+
+`python3 scripts/run_phase_acceptance.py` 會聚合驗收以下 gates：
+
+- P0 corpus 官方文件來源授權與更新政策差異比對。
+- `procedure_stage` 信心分數與 HITL 確認回路。
+- G2 fixture baseline：12 份 synthetic de-identified cases 與 84 個 atomic correction items。
+- 圖說／申請文件 metadata-only extraction。
+- 新北市以外 jurisdiction registry fail-closed stubs。
+- Codex plugin／Claude Code plugin／獨立 MCP server 封裝策略；目前決策為 standalone MCP server first，Codex/Claude Code 只保留 thin MCP wrappers。
+
+Production 導入前仍需以 approved real de-identified cases 補強或替換 synthetic fixture，並建立 live source ingestion/refresh workflow；目前 acceptance 驗證的是 contract 與 fail-closed 邊界。

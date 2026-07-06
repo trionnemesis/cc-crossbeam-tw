@@ -1,0 +1,236 @@
+{
+  "fixture_set_id": "g2-synthetic-deidentified-ntpc-v0",
+  "description": "Synthetic de-identified baseline for G2 contract validation. No raw drawings, addresses, names, phone numbers, IDs, or title-block images are committed.",
+  "target_case_count": 12,
+  "target_atomic_item_count": 80,
+  "cases": [
+    {
+      "fixture_id": "ntpc-g2-001",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "圖說審核",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-001", "subject": "室內裝修圖說審核補正通知"},
+      "file_metadata": [{"filename": "case-001-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-001-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "001-01", "source_span": "說明一：補申請書欄位", "text": "補齊申請書欄位", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "001-02", "source_span": "說明一：權利證明文件", "text": "補建築物權利證明文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "001-03", "source_span": "說明二：室內裝修圖說", "text": "補室內裝修圖說", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "001-04", "source_span": "說明二：簽章", "text": "補專業設計技術人員或建築師簽章", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "001-05", "source_span": "附件：前次核准圖面", "text": "補前次核准使用執照平面圖", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "001-06", "source_span": "說明三：程序", "text": "確認本案程序階段為圖說審核", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "001-07", "source_span": "說明四：消防", "text": "涉及消防安全設備變更時補相關文件", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-002",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "竣工查驗",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-002", "subject": "室內裝修竣工查驗補正通知"},
+      "file_metadata": [{"filename": "case-002-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-002-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "002-01", "source_span": "說明一：竣工查驗申請", "text": "補竣工查驗申請文件", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "002-02", "source_span": "說明一：竣工圖說", "text": "補竣工圖說", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "002-03", "source_span": "說明二：材料證明", "text": "補材料證明文件", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "002-04", "source_span": "說明二：簽章文件", "text": "補專業人員簽章文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "002-05", "source_span": "說明三：現況比對", "text": "確認竣工圖與現況一致性", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "002-06", "source_span": "附件：材料表", "text": "補材料表頁次索引", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "002-07", "source_span": "說明四：程序", "text": "不得套用圖說審核模板", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-003",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "變更使用併室內裝修竣工查驗",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-003", "subject": "變更使用併室內裝修竣工查驗補正通知"},
+      "file_metadata": [{"filename": "case-003-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-003-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "003-01", "source_span": "說明一：變更使用申請", "text": "補變更使用申請文件", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "003-02", "source_span": "說明一：室裝竣工圖", "text": "補室內裝修竣工圖說", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "003-03", "source_span": "說明二：消防文件", "text": "補消防安全設備變更相關文件或人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "003-04", "source_span": "說明二：使用類組", "text": "確認使用類組變更資料", "law_name": "建築法", "article": "77-2", "adjudication": "需人工認定"},
+        {"item_id": "003-05", "source_span": "附件：竣工圖說", "text": "補竣工圖說圖號索引", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "003-06", "source_span": "說明三：權利文件", "text": "補權利證明文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "003-07", "source_span": "說明四：人工確認", "text": "程序階段需人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-004",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "簡易室內裝修",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-004", "subject": "簡易室內裝修補正通知"},
+      "file_metadata": [{"filename": "case-004-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-004-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "004-01", "source_span": "說明一：簡易申請", "text": "補簡易室內裝修申請文件", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "004-02", "source_span": "說明一：簡易圖說", "text": "補簡易圖說", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "004-03", "source_span": "說明二：權利證明", "text": "補權利證明文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "004-04", "source_span": "說明二：適用範圍", "text": "確認未超出簡易室內裝修範圍", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "004-05", "source_span": "附件：圖說頁名", "text": "補簡易圖說頁名與圖號", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "004-06", "source_span": "說明三：簽章", "text": "確認簽章責任文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "004-07", "source_span": "說明四：轉程序", "text": "超出簡易範圍時改由人工確認程序階段", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-005",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "圖說審核",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-005", "subject": "室內裝修審核補正通知"},
+      "file_metadata": [{"filename": "case-005-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-005-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "005-01", "source_span": "主旨：補正", "text": "補正送審文件清單", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "005-02", "source_span": "說明一：圖說", "text": "補平面配置圖", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "005-03", "source_span": "說明一：材料", "text": "補材料表", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "005-04", "source_span": "說明二：現況", "text": "補現況圖", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "005-05", "source_span": "說明二：簽證", "text": "簽證責任需專業人員確認", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "005-06", "source_span": "附件：頁碼", "text": "補圖說頁碼索引", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "005-07", "source_span": "說明三：法源", "text": "補引用法源與適用程序說明", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-006",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "竣工查驗",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-006", "subject": "竣工查驗審查意見"},
+      "file_metadata": [{"filename": "case-006-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-006-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "006-01", "source_span": "說明一：竣工圖", "text": "補竣工圖說缺頁", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "006-02", "source_span": "說明一：材料證明", "text": "補材料證明缺漏", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "006-03", "source_span": "說明二：竣工照片", "text": "補竣工照片索引", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "006-04", "source_span": "說明二：簽章", "text": "補專業人員簽章", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "006-05", "source_span": "說明三：圖號", "text": "補竣工圖圖號對照", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "006-06", "source_span": "附件：文件", "text": "補查驗申請附件", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "006-07", "source_span": "說明四：人工", "text": "涉及現場查驗事項需人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-007",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "圖說審核",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-007", "subject": "圖說審核補件通知"},
+      "file_metadata": [{"filename": "case-007-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-007-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "007-01", "source_span": "說明一：申請書", "text": "申請書欄位不完整", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "007-02", "source_span": "說明一：權利證明", "text": "權利證明文件需補齊", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "007-03", "source_span": "說明二：圖說", "text": "室內裝修圖說圖面類型需標示", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "007-04", "source_span": "說明二：材料", "text": "材料表需與圖說一致", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "007-05", "source_span": "說明三：簽章", "text": "專業簽章範圍需確認", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "007-06", "source_span": "附件：現況", "text": "補現況圖頁", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "007-07", "source_span": "說明四：程序", "text": "確認程序階段未混用竣工查驗", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-008",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "變更使用併室內裝修竣工查驗",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-008", "subject": "變更使用併室裝查驗補件"},
+      "file_metadata": [{"filename": "case-008-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-008-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "008-01", "source_span": "說明一：變更使用", "text": "補變更使用基本資料", "law_name": "建築法", "article": "77-2", "adjudication": "缺失待補"},
+        {"item_id": "008-02", "source_span": "說明一：竣工圖", "text": "補室內裝修竣工圖說", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "008-03", "source_span": "說明二：消防", "text": "消防安全設備變更需人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "008-04", "source_span": "說明二：材料", "text": "補材料證明", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "008-05", "source_span": "說明三：簽章", "text": "補專業簽章文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "008-06", "source_span": "附件：對照表", "text": "補變更前後圖說對照表", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "008-07", "source_span": "說明四：程序", "text": "本案為變更使用併室內裝修竣工查驗", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "符合要件跡象"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-009",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "簡易室內裝修",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-009", "subject": "簡易室裝補正通知"},
+      "file_metadata": [{"filename": "case-009-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-009-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "009-01", "source_span": "說明一：簡易申請", "text": "簡易申請文件缺漏", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "009-02", "source_span": "說明一：簡易圖說", "text": "簡易圖說需標示範圍", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "009-03", "source_span": "說明二：權利文件", "text": "權利證明文件需遮罩後保存", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "009-04", "source_span": "說明二：範圍", "text": "是否仍屬簡易室內裝修需人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "009-05", "source_span": "附件：頁碼", "text": "補圖說頁碼", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "009-06", "source_span": "說明三：簽章", "text": "確認簽章責任", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "009-07", "source_span": "說明四：補件", "text": "補件後重新送審", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-010",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "圖說審核",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-010", "subject": "圖說審核退補通知"},
+      "file_metadata": [{"filename": "case-010-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-010-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "010-01", "source_span": "說明一：送件", "text": "送件資料不完整", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "010-02", "source_span": "說明一：申請書", "text": "申請書需補正", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "010-03", "source_span": "說明二：圖說", "text": "室內裝修圖說缺少圖面類型", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "010-04", "source_span": "說明二：平面圖", "text": "補前次核准使用執照平面圖", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "010-05", "source_span": "說明三：簽章", "text": "專業人員簽章需人工確認", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "010-06", "source_span": "附件：索引", "text": "補圖說索引", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "010-07", "source_span": "說明四：程序", "text": "圖說審核程序標示需確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-011",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "竣工查驗",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-011", "subject": "竣工查驗退補通知"},
+      "file_metadata": [{"filename": "case-011-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-011-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "011-01", "source_span": "說明一：查驗", "text": "竣工查驗文件不完整", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "011-02", "source_span": "說明一：竣工圖", "text": "竣工圖說缺頁", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "011-03", "source_span": "說明二：材料", "text": "材料證明文件缺漏", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"},
+        {"item_id": "011-04", "source_span": "說明二：簽章", "text": "專業簽章文件需確認", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "011-05", "source_span": "附件：圖號", "text": "竣工圖圖號對照缺漏", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "011-06", "source_span": "說明三：現況", "text": "現況查驗需人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"},
+        {"item_id": "011-07", "source_span": "說明四：補件", "text": "補件後再行查驗", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "缺失待補"}
+      ]
+    },
+    {
+      "fixture_id": "ntpc-g2-012",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "case_type": "室內裝修",
+      "procedure_stage": "圖說審核",
+      "deidentified": true,
+      "raw_files_committed": false,
+      "document_parsed": {"agency": "新北市政府工務局", "document_no": "REDACTED-012", "subject": "室內裝修圖說審核意見"},
+      "file_metadata": [{"filename": "case-012-document.masked.txt", "file_type": "masked_file"}, {"filename": "case-012-sheet-manifest.json", "file_type": "source_snapshot"}],
+      "atomic_correction_items": [
+        {"item_id": "012-01", "source_span": "說明一：申請文件", "text": "申請文件需補齊", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "012-02", "source_span": "說明一：權利文件", "text": "補權利證明文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "012-03", "source_span": "說明二：圖說", "text": "室內裝修圖說需補頁名", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "012-04", "source_span": "說明二：材料", "text": "補材料表與圖說對照", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "缺失待補"},
+        {"item_id": "012-05", "source_span": "說明三：簽章", "text": "補專業簽章責任文件", "law_name": "建築物室內裝修管理辦法", "article": "23", "adjudication": "需人工認定"},
+        {"item_id": "012-06", "source_span": "附件：程序", "text": "確認本案為圖說審核", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "符合要件跡象"},
+        {"item_id": "012-07", "source_span": "說明四：人工", "text": "專業判斷保留人工確認", "law_name": "新北市建築物室內裝修審核及查驗作業事項規範", "article": "3", "adjudication": "需人工認定"}
+      ]
+    }
+  ]
+}

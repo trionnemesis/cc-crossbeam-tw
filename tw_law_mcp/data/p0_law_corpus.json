@@ -23,27 +23,145 @@
   ],
   "source_policies": [
     {
-      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070149",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070148",
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
       "source_update_policy": "adapter_checked",
-      "crawl_policy": "snapshot_with_checksum"
+      "crawl_policy": "snapshot_with_checksum",
+      "verified_law_name": "建築物室內裝修管理辦法",
+      "verified_at": "2026-07-06",
+      "update_policy_evidence": "全國法規資料庫頁尾說明每週五定期更新，法規整編資料有截止日。",
+      "license_evidence": "全國法規資料庫提供政府網站資料開放宣告入口。"
     },
     {
       "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070109",
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
       "source_update_policy": "adapter_checked",
-      "crawl_policy": "snapshot_with_checksum"
+      "crawl_policy": "snapshot_with_checksum",
+      "verified_law_name": "建築法",
+      "verified_at": "2026-07-06",
+      "update_policy_evidence": "全國法規資料庫頁尾說明每週五定期更新，法規整編資料有截止日。",
+      "license_evidence": "全國法規資料庫提供政府網站資料開放宣告入口。"
     },
     {
       "source_url": "https://web.law.ntpc.gov.tw/",
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
       "source_update_policy": "manual_snapshot_required",
-      "crawl_policy": "official_reference_only"
+      "crawl_policy": "official_reference_only",
+      "verified_law_name": "新北市政府電子法規查詢系統",
+      "verified_at": "2026-07-06",
+      "update_policy_evidence": "新北市政府電子法規查詢系統提供法規動態與法規異動頁面，地方規範入庫前需人工快照。",
+      "license_evidence": "頁尾標示新北市政府版權所有，未經允許不得複製採用；因此採 official_reference_only。"
     }
   ],
+  "source_policy_comparisons": [
+    {
+      "comparison_id": "moj-vs-ntpc-official-source-policy",
+      "sources": [
+        "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070148",
+        "https://web.law.ntpc.gov.tw/"
+      ],
+      "differences": [
+        {
+          "field": "source_authority_rank",
+          "moj": 2,
+          "ntpc": 3,
+          "handling": "中央法規庫與地方官方法規系統分開排序，不用權威 rank 推論授權狀態。"
+        },
+        {
+          "field": "source_license_status",
+          "moj": "open_data_reusable",
+          "ntpc": "official_reference_only",
+          "handling": "地方來源先以官方參考模式引用，不做長期重製承諾。"
+        },
+        {
+          "field": "source_update_policy",
+          "moj": "adapter_checked",
+          "ntpc": "manual_snapshot_required",
+          "handling": "地方來源進正式 corpus 前需人工快照與 checksum。"
+        }
+      ],
+      "decision": "P0 snapshot 可同時引用兩類來源，但輸出必須保留 rank、license、update_policy 與 crawl_policy。"
+    }
+  ],
+  "jurisdiction_registry": [
+    {
+      "jurisdiction": {
+        "central": "TW",
+        "local": "ntpc"
+      },
+      "display_name": "新北市",
+      "enabled": true,
+      "default_case_type": "室內裝修",
+      "supported_procedure_stages": [
+        "圖說審核",
+        "竣工查驗",
+        "變更使用併室內裝修竣工查驗",
+        "簡易室內裝修"
+      ],
+      "law_pack_ids": [
+        "tw-ntpc-interior-renovation-p0"
+      ]
+    },
+    {
+      "jurisdiction": {
+        "central": "TW",
+        "local": "tpe"
+      },
+      "display_name": "臺北市",
+      "enabled": false,
+      "default_case_type": "室內裝修",
+      "supported_procedure_stages": [],
+      "law_pack_ids": [],
+      "handling": "stub only; fail closed until local law pack is verified"
+    },
+    {
+      "jurisdiction": {
+        "central": "TW",
+        "local": "tyc"
+      },
+      "display_name": "桃園市",
+      "enabled": false,
+      "default_case_type": "室內裝修",
+      "supported_procedure_stages": [],
+      "law_pack_ids": [],
+      "handling": "stub only; fail closed until local law pack is verified"
+    }
+  ],
+  "fixture_baseline": {
+    "target_case_count": 12,
+    "target_atomic_item_count": 80,
+    "cases": [
+      {
+        "fixture_id": "ntpc-seed-001",
+        "jurisdiction": {
+          "central": "TW",
+          "local": "ntpc"
+        },
+        "case_type": "室內裝修",
+        "procedure_stage": "圖說審核",
+        "deidentified": true,
+        "raw_files_committed": false,
+        "atomic_item_count": 3,
+        "source": "synthetic_seed"
+      },
+      {
+        "fixture_id": "ntpc-seed-002",
+        "jurisdiction": {
+          "central": "TW",
+          "local": "ntpc"
+        },
+        "case_type": "室內裝修",
+        "procedure_stage": "竣工查驗",
+        "deidentified": true,
+        "raw_files_committed": false,
+        "atomic_item_count": 2,
+        "source": "synthetic_seed"
+      }
+    ]
+  },
   "local_rules": [
     {
       "jurisdiction": "ntpc",
@@ -71,14 +189,14 @@
     {
       "law_id": "building-interior-renovation-regulations",
       "law_name": "建築物室內裝修管理辦法",
-      "article": "33",
+      "article": "23",
       "paragraph": null,
       "item": null,
       "effective_date": "2024-01-01",
       "amendment_date": "2024-01-01",
       "hierarchy": "central",
       "authority": "MOI",
-      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070149",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070148",
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
       "source_adapter_id": "tw-moj-law-adapter",
