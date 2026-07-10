@@ -1,101 +1,112 @@
-# TASK STATE: cc-crossbeam-tw full phase completion
+# TASK-STATE — Secure Web implementation through verified completion
 
-## Objective
+Updated: 2026-07-10T14:05:00+08:00 / Progress: 5/6 milestones
 
-Complete the downstream roadmap:
+## Goal
 
-- P0 corpus official source authorization and update-policy comparison.
-- Formal `procedure_stage` confidence scoring and HITL confirmation loop.
-- Fixture baseline: at least 12 de-identified cases and at least 80 atomic correction items (G2).
-- Drawing/application metadata extraction.
-- Jurisdiction registry beyond New Taipei.
-- Packaging decision across Codex plugin, Claude Code plugin, and standalone MCP server.
+User objective: implement the next-phase Secure Web plan through complete delivery.
 
-## Lane
+Success requires issue #8 behavior: Next.js UI, Google identity and LINE-first entry,
+case authorization, raw-file quarantine, Python masking/domain processing, Codex local
+provider for the single-user pilot, HITL/results/audit/deletion UX, production adapters,
+and requirement-by-requirement acceptance evidence.
 
-L2 feature with L5 long-task overlay.
+## Constraints
 
-## Current State
+- Maximum expected concurrency is about twenty; optimize for auditability and low ops.
+- Current pilot user count is one.
+- Raw customer data must not enter LINE/Slack, Next.js request bodies, logs, or model prompts.
+- `tw_law_mcp` remains the legal/auditability source of truth.
+- Codex ChatGPT auth is local worker auth only, never website authentication.
+- No secrets or `.env` values may be committed or printed.
+- Missing external production credentials must fail closed and cannot be reported as verified.
 
-- Repository currently contains a deterministic `tw-law-mcp` prototype.
-- `p0_law_corpus.json` has a small P0 fixture corpus, not a verified official corpus.
-- `data_governance_state` gate exists, but there is no raw/masked intake pipeline.
-- No real de-identified fixture set exists in the repository.
-- No frontend/backend app has been ported into this repository.
+## Completed
 
-## Working Strategy
+1. Framework/auth/privacy/UI decision recorded in GitHub issue #8; issue verified open.
+2. Local capability check: Node 22.22.3, npm 10.9.8, Python 3.14.2, Docker 29.4.0,
+   Codex CLI 0.142.5; `codex login status` reports `Logged in using ChatGPT`.
+3. Branch created: `codex/secure-web` from clean `main@684bc1a`.
+4. Phase plan and ADR persisted: `.plans/secure-web.md`, `docs/ADR-0002-secure-web.md`.
+5. Phase 0 acceptance baseline: Python domain suite passed; Secure Web check failed before
+   scaffold as intended (`web/package.json is not implemented yet`).
+6. Phase 1 Next.js shell, runtime config, Better Auth local boundary, SQLite schema,
+   canonical identity/membership DAL, sign-in, and cases UI implemented.
+7. Phase 1 verification: Vitest 4 files / 9 tests passed; TypeScript and ESLint passed;
+   Next.js 16.2.10 production build passed.
+8. Browser smoke: local anonymous sign-in navigated to `/cases`, seeded one owner case,
+   desktop navigation rendered, and 390x844 mobile navigation exposed four routes.
+9. Secure upload implemented: metadata-only intent, browser-to-worker direct PUT,
+   single-use capability, checksum/size/MIME checks, quarantine state machine, file modes,
+   exact-origin CORS, and safe error mapping.
+10. Python worker implemented: extraction, deterministic PII masking, existing legal-domain
+    analysis, isolated ephemeral/read-only Codex provider, HITL response generation, and
+    verified private-file deletion.
+11. LINE account-link protocol implemented: signed raw-body webhook verification, expiring
+    one-time token hash, nonce/state/replay rejection, canonical channel identity, and unlink.
+12. Result, review, source, account, audit, correction, HITL, and deletion UI implemented
+    with desktop and 390x844 mobile browser evidence.
+13. Local acceptance passed: 50 Python tests, 27 web tests, TypeScript, ESLint, webpack
+    production build, architecture R1-R12 orphan check, and Codex auth status.
+14. Live synthetic Codex smoke produced schema-valid masked-only output. Full local HTTP E2E
+    passed sign-in, authorization, direct upload, zero raw-canary leaks, HITL, response draft,
+    and verified deletion.
+15. Single-user operations documented with fail-closed runtime modes, loopback worker,
+    HTTPS reverse proxy example, pinned CI actions, health checks, and incident runbook.
+16. Four-position independent review completed. The critical DLP gap and actionable major
+    findings were corrected: expanded Taiwan masking, provider-path spy, same-origin CSRF,
+    same-origin upload endpoint, retryable HITL, zero-question completion, cross-user E2E,
+    cross-process CI, dependency cleanup, and fail-closed TXT-only raw ingestion.
+17. Route-level regressions cover HITL worker 503 then retry success and LINE webhook raw
+    signature, body-size, Messaging API entry flow, and bounded upstream failure.
+18. Post-hardening cross-process E2E passed sign-in, real second-user authorization denial,
+    direct worker upload, zero canary leaks, live Codex result, HITL, response draft, and
+    verified private-file deletion.
+19. GitHub issue #8 updated with the selected Codex-auth worker boundary, implementation,
+    remediation verdict, acceptance evidence, and remaining external gates.
 
-1. Finish Phase 1.5 foundation before agent or web-app porting.
-2. Keep raw drawings out of Codex/agent prompts.
-3. Add contracts and deterministic checks before adding host-specific packaging.
-4. Treat G2 as incomplete until 12 de-identified cases and 80 atomic items are actually present and verifiable.
-5. For the Taiwan scenario matrix slice, add documentation and a repeatable acceptance gate before adding broader tool behavior.
+## Active State
 
-## Progress
+- cwd: `/Users/warden/Documents/cc-crossbeam-tw`
+- branch: `codex/secure-web`
+- changed files: governance docs, new `web/` application, Python worker, tests, and runbook
+- test status: 7/7 local acceptance and post-hardening cross-process E2E green
+- running processes: none
+- current milestone: independent review and external single-user acceptance
 
-- [x] Audit current repo against requested end state.
-- [x] Decide next executable slice: Phase 1.5 governed pipeline foundation.
-- [x] Add source policy comparison data and repository accessors.
-- [x] Add procedure stage confidence resolver and HITL routing metadata.
-- [x] Add fixture manifest contract for G2 tracking.
-- [x] Add synthetic de-identified G2 baseline: 12 cases and 84 atomic correction items.
-- [x] Add metadata extraction contract for documents/drawings.
-- [x] Add jurisdiction registry stubs beyond New Taipei.
-- [x] Add packaging strategy ADR.
-- [x] Run tests and record evidence: `python3 -m unittest discover -s tests` passed, 18 tests.
-- [x] Add deterministic masked-document parser, atomic normalizer, sheet manifest builder, and HITL confirmation packet builders.
-- [x] Expose Phase 2 artifact builders as MCP tools.
-- [x] Add repeatable G2 fixture mini-pipeline acceptance across snapshot, sheet manifest, HITL packet, and audit gates.
-- [x] Add fail-closed HITL confirmation application for procedure-stage and manual-review correction questions.
-- [x] Add repeatable P0 source-policy acceptance for official-source evidence and comparison coverage.
-- [x] Add repeatable jurisdiction registry acceptance for enabled coverage and disabled fail-closed stubs.
-- [x] Add repeatable packaging acceptance for standalone MCP strategy and thin Codex/Claude wrappers.
-- [x] Add aggregate Phase acceptance gate covering all explicit roadmap requirements.
-- [x] Add Taiwan scenario feature matrix documentation.
-- [x] Add scenario matrix fixture and acceptance gate.
-- [x] Expose scenario matrix acceptance through script, aggregate phase gate, and MCP tool list.
-- [x] Split corpus into source packs, registries, and fixture data directory.
-- [x] Add deterministic source adapter contracts producing normalized source units.
-- [x] Implement scenario MCP tools for routing, fire equipment, fire compartment, material evidence, NTPC packet, and web fallback.
-- [x] Harden scenario matrix acceptance to verify real packs/tools/artifacts/gates and at least 5 MVP queries per category.
-- [x] Add two-stage contractor flow skeleton through analysis and response artifacts.
-- [x] Publish v0.4.0 status for mainline completion of groups 1-6 and Phase 2.1-2.6 / Step 6.
+## Next Step
 
-## Current Evidence
+Perform public HTTPS Google OIDC and LINE acceptance after credentials are supplied.
 
-- `compare_source_policies` exposes rank/license/update/crawl differences for P0 source classes.
-- `run_source_policy_acceptance` verifies all P0 article sources have policy evidence and all official source classes are covered by comparisons.
-- P0 corpus source URL correction: `建築物室內裝修管理辦法` now uses MOJ `D0070148` and article 23 for application drawing documents.
-- `resolve_procedure_stage_confidence` returns confidence and routes ambiguous/low-confidence input to HITL.
-- `get_fixture_baseline_status` reports the synthetic de-identified G2 contract baseline: 12 cases and 84 atomic items; unsupported fixture claims fail closed through `claim_supported`.
-- `extract_file_metadata` returns metadata-only agent policy and never allows raw drawing/document content.
-- `list_jurisdictions` exposes New Taipei as enabled and Taipei/Taoyuan as disabled fail-closed stubs.
-- `run_jurisdiction_registry_acceptance` verifies the enabled New Taipei registry has law packs/stages and non-New-Taipei entries fail closed.
-- `run_packaging_acceptance` verifies `.codex/config.toml`, `.mcp.json`, the stdio entrypoint, and ADR-0001 preserve standalone MCP-first packaging.
-- `run_phase_acceptance` aggregates P0 source policy, procedure/HITL, G2 fixture, metadata extraction, jurisdiction registry, packaging strategy, scenario matrix, split data layout, source adapters, and two-stage flow gates.
-- `parse_masked_document`, `normalize_atomic_correction_items`, `build_sheet_manifest`, and `build_hitl_confirmation_packet` create Phase 2 contract artifacts from masked text and metadata only.
-- `apply_hitl_confirmations` applies answered `client_questions` back into `procedure_stage_signal` and atomic correction items, while unknown/missing/invalid answers remain incomplete and require human review.
-- `run_fixture_pipeline_acceptance` reports all 12 synthetic cases and 84 atomic correction items pass deterministic snapshot, sheet manifest, HITL packet, and audit-gate acceptance.
-- Latest verification: `python3 -m unittest discover -s tests` passed, 42 tests.
-- Latest aggregate Phase acceptance smoke: `python3 scripts/run_phase_acceptance.py` returned `all_passed=false` because `g2_fixture_baseline=false`; all other aggregate gates passed. This is the expected fail-closed trust boundary until approved real de-identified cases support production claims.
-- Latest source policy acceptance smoke: `python3 scripts/run_source_policy_acceptance.py` passed with `all_passed=true`, 3 article sources, and 2 source classes.
-- Latest jurisdiction registry acceptance smoke: `python3 scripts/run_jurisdiction_registry_acceptance.py` passed with `all_passed=true`, 1 enabled jurisdiction, and 2 disabled jurisdictions.
-- Latest packaging acceptance smoke: `python3 scripts/run_packaging_acceptance.py` passed with `all_passed=true` and `decision=standalone_mcp_server_first`.
-- Latest fixture pipeline smoke: `python3 scripts/run_fixture_pipeline.py` passed with `all_cases_passed=true`, 12 cases, and 84 atomic items.
-- Current branch: `main`.
-- Latest scenario matrix TDD red: targeted tests failed before implementation because `run_scenario_matrix_acceptance` and the MCP tool were missing.
-- Latest scenario matrix targeted green: `python3 -m unittest tests.test_law_repository.LawRepositoryTests.test_scenario_matrix_acceptance_covers_mvp_categories tests.test_law_repository.LawRepositoryTests.test_phase_acceptance_covers_all_roadmap_gates tests.test_stdio_server.StdioServerTests.test_server_lists_and_calls_v1_tools` passed, 3 tests.
-- Latest scenario matrix smoke: `python3 scripts/run_scenario_matrix_acceptance.py` passed with `all_passed=true`, 7 queries, and no missing MVP categories.
-- Latest aggregate Phase acceptance smoke before trust-boundary hardening: `python3 scripts/run_phase_acceptance.py` passed with `all_passed=true` and `scenario_matrix=true`.
-- Latest full unit test run before Step 6 completion: `python3 -m unittest discover -s tests` passed, 28 tests.
-- Step 6 completion branch has been merged into `main`.
-- Phase 2.1-2.6 scope is now recorded in `.plans/tw-law-mcp.md`; completion requires data split, source-unit adapters, scenario tools, hardened evaluation, and two-stage flow.
-- Latest Phase 2.1-2.6 targeted TDD red: six targeted tests failed for missing data layout, source units, scenario tools, two-stage flow, query count, and MCP exposure.
-- Latest Phase 2.1-2.6 targeted green: six targeted tests passed after implementing split data, source adapters, tools, hardened matrix, and two-stage flow.
-- Latest full unit test run during Phase 2.1-2.6: `python3 -m unittest discover -s tests` passed, 32 tests.
-- Latest v0.4.0 mainline status update: README and GitHub Pages now state groups 1-6 plus Phase 2.1-2.6 / Step 6 are complete, while preserving the production G2 blocker.
+## Blocked
 
-## Blockers / External Inputs
+- Production Google OIDC client ID/secret not available.
+- Production LINE channel secret/access token not available.
+- GCP project, Cloud SQL, GCS, Cloud Tasks, and deploy authority are not required for the
+  selected one-user self-host target; cloud production remains a documented future mode.
+- External credentials do not block local completion; public single-user acceptance remains gated.
 
-- Production G2 still requires replacing or supplementing synthetic cases with approved real de-identified New Taipei cases.
-- Official source licensing comparison may require live source review before final production claims.
+## Key Decisions
+
+- Next.js App Router is the accepted web/BFF framework; React Router is the runner-up.
+- Application `user.id` is canonical; Google `sub` and channel IDs are external mappings.
+- Signed upload is only a capability; scan/mask/promotion state defines quarantine release.
+- Pilot ingestion is UTF-8 TXT only; PDF/image parsing requires a separate sandboxed worker.
+- Local pilot uses bounded local adapters and existing Codex ChatGPT auth.
+- Production rejects local auth/storage/database/task/model adapters.
+- FastMCP is deferred until a real remote consumer exists.
+
+## Relevant Files
+
+- `.plans/secure-web.md:1` — phased implementation and test contract.
+- `docs/ADR-0002-secure-web.md:1` — selected architecture and flip conditions.
+- `docs/ADR-0001-packaging-strategy.md:28` — standalone Python domain boundary.
+- `docs/cc-crossbeam-feature-matrix.md:44` — existing app workflow mapping.
+- `tw_law_mcp/repository.py` — domain source of truth.
+
+## Historical (STALE — unless the user explicitly asks again, do not execute)
+
+- The previous TASK-STATE tracked groups 1-6 / Phase 2.1-2.6 and was completed on
+  `main`; its evidence remains in git history and README.
+- The API-key setup blocker is superseded by the explicit local Codex-auth provider
+  decision. Do not reopen API-key provisioning unless production provider selection changes.

@@ -1,0 +1,1 @@
+"""Secure Web worker package."""

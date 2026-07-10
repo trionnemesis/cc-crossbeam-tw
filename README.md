@@ -1,5 +1,35 @@
 # cc-crossbeam-tw
 
+## Secure Web（single-user next phase）
+
+`codex/secure-web` adds a Next.js 16 / TypeScript Secure Web around the existing
+`tw_law_mcp` domain core. The current one-user deployment model separates human and
+AI identity:
+
+- Google OIDC allowlists the single website owner.
+- LINE is an opaque entry/deep-link and account-link channel.
+- Codex ChatGPT auth is used only by the loopback Python model worker.
+- Browser file bytes bypass Next.js and enter private quarantine directly.
+- Only masked text reaches `tw_law_mcp` and the optional Codex provider.
+
+Local verification:
+
+```bash
+cd web
+npm ci
+npm run test:run
+npm run typecheck
+npm run lint
+npm run build
+cd ..
+python3 -m unittest discover -s tests
+python3 scripts/acceptance.py
+```
+
+Single-user HTTPS setup, Google/LINE callback paths, private storage, and incident
+steps are documented in [`docs/runbook-secure-web.md`](docs/runbook-secure-web.md).
+Live Google/LINE acceptance requires owner-supplied credentials and a public HTTPS domain.
+
 **台灣室內裝修送審文件助手原型**，首發場景聚焦新北市室內裝修申請與補正流程。
 
 這個專案要處理的是建築師、室內裝修業者、代辦人員反覆遇到的文件整理問題：
