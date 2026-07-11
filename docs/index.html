@@ -8,28 +8,43 @@
       name="description"
       content="台灣室內裝修送審文件助手原型，協助建築師、室內裝修業者與代辦人員整理新北市室內裝修程序分流、送件文件、補正項目與人工確認問題。"
     />
+    <meta property="og:title" content="Crossbeam TW｜送審文件先變清楚，再交給專業判斷" />
+    <meta property="og:description" content="給建築師、室內裝修業者與代辦窗口使用的來源可追溯文件工作流。" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://trionnemesis.github.io/cc-crossbeam-tw/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header class="hero">
+    <nav class="site-nav" aria-label="主要導覽">
+      <div class="nav-inner">
+        <a class="brand" href="#top" aria-label="Crossbeam TW 首頁"><span>CT</span>Crossbeam TW</a>
+        <div class="nav-links">
+          <span class="pilot-status">Public prototype</span>
+          <a href="#value">工作流程</a>
+          <a href="#start">快速開始</a>
+        </div>
+      </div>
+    </nav>
+
+    <header class="hero" id="top">
       <div class="hero-inner hero-grid">
-        <div>
-          <p class="eyebrow">新北市室內裝修申請與補正流程</p>
-          <h1>台灣室內裝修送審文件助手</h1>
+        <div class="hero-copy-panel">
+          <p class="eyebrow">Document review / Taiwan</p>
+          <h1>讓送審文件先變清楚，<br />再交給專業判斷</h1>
           <p class="lead">
             給建築師、室內裝修業者與代辦窗口使用的 MCP 原型。它把程序分流、送件文件、補正公文、消防與材料文件提示拆成可追溯的工具輸出，讓 AI 先查來源、列缺口、問人工確認，而不是直接下結論。
           </p>
           <div class="hero-actions">
-            <a class="button" href="#value">看能做什麼</a>
-            <a class="button secondary" href="#ask">提問範例</a>
-            <a class="button secondary" href="#start">開始設定</a>
-            <a class="button secondary" href="#status">目前狀態</a>
+            <a class="button" href="#value">查看工作流程</a>
+            <a class="text-link" href="#ask">查看提問範例</a>
+            <a class="text-link" href="https://github.com/trionnemesis/cc-crossbeam-tw">GitHub 原始碼</a>
           </div>
         </div>
         <div class="workflow-visual" aria-label="室內裝修文件流程">
           <div class="visual-title">
-            <strong>文件工作流</strong>
-            <span>source-bound / HITL</span>
+            <strong>四階段文件工作流</strong>
+            <span>01 / 04</span>
           </div>
           <div class="nodes">
             <div class="node">
