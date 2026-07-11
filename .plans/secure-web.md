@@ -228,6 +228,53 @@ No credential may be committed. `.env.local` is ignored and optional.
 - Browser desktop/mobile acceptance passes.
 - Raw canary leak scan returns zero matches outside the test fixture itself.
 
+### Phase 6: Public landing page for construction professionals
+
+**Files:** `web/app/page.tsx`, `web/app/layout.tsx`, `web/app/globals.css`, `web/public/og.png`, `web/tests/home-page.test.tsx`, `web/tests/metadata.test.ts`, `web/scripts/e2e-homepage.ts`, `web/package.json`
+
+#### 6a. Replace the pilot splash page with the selected Polar Console system (~220 lines)
+
+- Present the README's audience, workflow, capability, privacy, and professional-review boundaries.
+- Use the selected cold-white 12-column Bento layout, 1px muted borders, Inter/SF/Geist sans text, mono metadata, and Cyber Blue only for primary actions and focus.
+- Preserve `/cases` as the authenticated product entry and leave all secure routes and runtime behavior unchanged.
+
+#### 6b. Update public metadata and responsive behavior (~30 lines)
+
+- Describe the Taiwan construction-document workflow without legal or approval claims.
+- Reflow every grid to one column on narrow screens and retain keyboard-visible focus.
+- Publish a site-specific 1200×630 social card with Open Graph metadata derived from validated `APP_ORIGIN`.
+
+**Tests for Phase 6:**
+
+- Existing web tests remain green.
+- Landing-page rendering verifies the `/cases` CTA and professional/privacy boundaries.
+- Metadata resolves the social image against validated `APP_ORIGIN`, never request headers.
+- A real running-server acceptance checks the rendered absolute `og:image`, primary CTA, boundaries, and image response.
+- TypeScript typecheck and ESLint pass.
+- Production build completes.
+- The landing page keeps `/cases` as its primary action and exposes the README boundaries.
+
+### Phase 7: Polar Console GitHub Pages public site
+
+**Files:** `docs/index.html`, `docs/styles.css`, `docs/og.png`
+
+#### 7a. Carry the selected public visual system into the existing Pages surface (~360 lines)
+
+- Keep GitHub Pages as a static introduction site sourced from `main:/docs`; do not expose secure application routes.
+- Lead with the README's construction-workflow value, then show professional boundaries, examples, privacy guidance, setup, and prototype status.
+- Reuse the selected cold-white Bento layout, 1px muted borders, sans/mono typography, and sub-5% Cyber Blue accent.
+
+#### 7b. Publish and verify the live Pages result (~20 lines)
+
+- Add a Pages-specific social card reference and preserve the canonical repository link.
+- Validate the static document locally, then verify the GitHub Pages workflow and live URL after merge to `main`.
+
+**Tests for Phase 7:**
+
+- Local static server returns the homepage, stylesheet, and social card with HTTP 200.
+- Desktop and mobile layouts retain readable content and working anchor navigation.
+- GitHub Pages reports `built` and the live page contains the selected headline after `main` deployment.
+
 ## Integration Issues & Edge Cases
 
 1. Codex ChatGPT auth is a local Codex-client credential, not a third-party web login.
@@ -249,6 +296,8 @@ No credential may be committed. `.env.local` is ignored and optional.
 | `worker/` | 2,4 | Python processing service and container |
 | `deploy/` | 4 | Cloud Run/Cloud SQL/GCS/Tasks configuration |
 | `scripts/acceptance.py` | 0,5 | Repeatable full-system acceptance |
+| `web/app/page.tsx`, `web/app/layout.tsx`, `web/app/globals.css`, `web/public/og.png`, `web/tests/home-page.test.tsx`, `web/tests/metadata.test.ts`, `web/scripts/e2e-homepage.ts`, `web/package.json` | 6 | Polar Console landing page, metadata, social card, and regression/E2E coverage |
+| `docs/index.html`, `docs/styles.css`, `docs/og.png` | 7 | Polar Console static GitHub Pages introduction site |
 
 **Estimated new code:** ~4,600 lines. **Estimated test code:** ~1,600 lines.
 
@@ -260,5 +309,7 @@ No credential may be committed. `.env.local` is ignored and optional.
 4. Merge Phase 4 after production config fail-closed tests and container build pass.
 5. Enable the local Codex provider only for the single-user local pilot.
 6. Enable production providers only after external credential/deployment acceptance.
+7. Publish the Phase 6 landing page after web tests, typecheck, lint, and production build pass.
+8. Publish Phase 7 from `main:/docs` and verify the live GitHub Pages URL.
 
 Each phase is independently mergeable and testable.

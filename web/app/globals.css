@@ -42,6 +42,75 @@ a {
   outline-offset: 3px;
 }
 
+.polar-console {
+  color-scheme: light;
+  --canvas: #f8fafc;
+  --surface: #ffffff;
+  --ink: #0f172a;
+  --text: #0f172a;
+  --muted: #64748b;
+  --quiet: #94a3b8;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --accent: #3b82f6;
+  --interactive: #3b82f6;
+  font-family: Inter, "SF Pro Display", "SF Pro Text", Geist, "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.polar-console :focus-visible {
+  outline: 2px solid var(--interactive);
+}
+
+.polar-console .panel {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: border-color 150ms linear;
+}
+
+.polar-console .panel:hover {
+  border-color: var(--border-strong);
+}
+
+.polar-console .mono-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.polar-console .primary-button {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  background: var(--accent);
+  padding: 0 24px;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  transition: filter 150ms linear;
+}
+
+.polar-console .primary-button:hover {
+  filter: brightness(0.94);
+}
+
+.polar-console .link-underline {
+  border-bottom: 1px solid transparent;
+  transition: border-color 150ms linear;
+}
+
+.polar-console .link-underline:hover {
+  border-color: currentColor;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

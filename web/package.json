@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
+    "acceptance:homepage": "tsx scripts/e2e-homepage.ts",
     "acceptance:upload": "tsx scripts/e2e-upload.ts"
   },
   "dependencies": {
