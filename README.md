@@ -1,5 +1,35 @@
 # cc-crossbeam-tw
 
+> Taiwan interior-renovation submission document assistant prototype. It turns
+> procedure routing, submission packets, correction notices, source references,
+> and human confirmation into auditable MCP workflows for New Taipei City.
+
+![Python](https://img.shields.io/badge/Python-%3E%3D3.10%2C%3C4.0-3776AB?logo=python&logoColor=white)
+![Status](https://img.shields.io/badge/status-public%20prototype-3b82f6)
+
+## Project at a glance
+
+`cc-crossbeam-tw` is a source-bound MCP server prototype for Taiwan
+interior-renovation submission work. The project keeps the legal/auditability
+domain in `tw_law_mcp` and treats AI as a bounded assistant:
+
+- procedure routing and confidence signals for New Taipei City workflows;
+- document packets, metadata manifests, correction-item normalization, and draft responses;
+- source snapshots, audit gates, and human-in-the-loop confirmation; and
+- metadata-only inputs, source snapshots, and human confirmation for uncertain cases.
+
+This is a public prototype, not a legal-opinion, professional-signoff, or approval-guarantee service.
+
+### Public links
+
+- [Project Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) — public workflow overview and examples.
+- [Packaging ADR](docs/ADR-0001-packaging-strategy.md) — standalone MCP packaging decision.
+- [Feature matrix](docs/cc-crossbeam-feature-matrix.md) — workflow mapping and scope comparison.
+- [Scenario feature matrix](docs/tw-scenario-feature-matrix.md) — supported workflow scenarios and evidence boundaries.
+- [Contribution guide](CONTRIBUTING.md) — setup, verification, and privacy rules for changes.
+
+The detailed Traditional Chinese product description and current delivery status follow below.
+
 **台灣室內裝修送審文件助手原型**，首發場景聚焦新北市室內裝修申請與補正流程。
 
 這個專案要處理的是建築師、室內裝修業者、代辦人員反覆遇到的文件整理問題：
@@ -25,7 +55,7 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)。
 | 送件前檢核 | 依程序階段整理新北市室內裝修文件 packet | 文件清單、缺件提示、source-bound references |
 | 補正公文整理 | 解析已遮罩公文，拆成 atomic correction items | 補正項目清單、回覆草稿、專業確認包 |
 | 消防與防火相關提示 | 標示可能涉及消防設備、防火區劃、防火門、材料證明的文件需求 | routing 結果、需要消防或建築專業確認的問題 |
-| 稽核與溯源 | 每次回答保留來源、日期、gate 與人工介入狀態 | law snapshot、run metadata、acceptance output |
+| 稽核與溯源 | 支援的分析與補正流程保留來源、日期、gate 與人工介入狀態 | law snapshot、run metadata、acceptance output |
 
 ## 先講邊界
 
@@ -39,7 +69,7 @@ GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)。
 | 標示可能相關的條文、來源 URL、authority rank、as-of date | 替代建築師、消防設備師或其他專業人員簽證 |
 | 對消防、防火區劃、材料證明做文件 routing | 做消防設計結論或材料真偽判斷 |
 
-不確定、資料不足、涉及專業裁量或低信心時，工具會 fail closed 並要求 human-in-the-loop，不會硬判定。
+在程序分流、文件 routing 與補正流程中，若資料不足、涉及專業裁量或低信心，流程會 fail closed 並產生 human-in-the-loop 待確認項目；不會以這些輸出取代專業判斷。
 
 ## 可以怎麼問 AI 助手
 
@@ -84,9 +114,11 @@ cd cc-crossbeam-tw
 python3 scripts/tw_law_mcp_stdio.py
 ```
 
+這會啟動一個持續等待 JSON-RPC 輸入的 long-running MCP process；完成測試後可用 `Ctrl-C` 結束。
+
 - Codex App：專案設定在 `.codex/config.toml`。
 - Claude Code：專案設定在 `.mcp.json`。
-- 啟動後建議先執行 `python3 -m unittest discover -s tests` 與目標 acceptance script。`run_phase_acceptance` 是 aggregate trust gate；在 production G2 仍未接入 approved real de-identified cases 前，會對 unsupported synthetic fixture claims fail closed。
+- 啟動後建議先執行 `python3 -m unittest discover -s tests` 與目標 acceptance script。`run_phase_acceptance` 是 aggregate trust gate；目前預期會以非 0 結束並回報 `all_passed=false`，因為 production G2 尚未接入 approved real de-identified cases，unsupported synthetic fixture claims 必須 fail closed。
 
 ## 目前狀態
 
@@ -98,7 +130,7 @@ python3 scripts/tw_law_mcp_stdio.py
 - 目前使用 P0 fixture corpus 與 synthetic de-identified cases 驗證流程契約；production 導入前仍需 approved real de-identified cases 與 live official-source ingestion/refresh workflow。G2 synthetic baseline 只能證明 schema、gate 與 HITL contract，不能支撐真實案件 claim。
 - 新北市以外 jurisdiction 已預留 registry，但目前 fail closed，不主動作答。
 
-本專案的產品流程概念源自 [`cc-crossbeam`](https://github.com/trionnemesis/cc-crossbeam) 的文件審查與補正回覆流程；只借流程，不搬美國 ADU 法規。對照表見 [`docs/cc-crossbeam-feature-matrix.md`](docs/cc-crossbeam-feature-matrix.md)。
+本專案的產品流程概念源自 cc-crossbeam 的文件審查與補正回覆流程；只借流程，不搬美國 ADU 法規。對照表見 [`docs/cc-crossbeam-feature-matrix.md`](docs/cc-crossbeam-feature-matrix.md)。
 
 <details>
 <summary><strong>開發者資訊：MCP 工具、測試與 acceptance gates</strong></summary>
@@ -113,7 +145,7 @@ python3 scripts/tw_law_mcp_stdio.py
 
 目前 server 宣告 38 個 MCP tools：
 
-- 法規與來源查詢：`list_law_packs`、`search_law`、`get_article`、`verify_citation`、`get_local_rule`、`build_law_snapshot`
+- 法規與來源查詢：`list_law_packs`、`search_law`、`get_article`、`verify_citation`、`check_claim_support`、`get_local_rule`、`build_law_snapshot`
 - 程序分流：`resolve_tw_scenario`、`resolve_procedure_stage_confidence`、`resolve_procedure_requirements`
 - 專業文件 routing：`check_fire_equipment_routing`、`check_fire_compartment_evidence`、`check_material_evidence`、`detect_illegal_construction_reference`
 - 文件處理：`extract_file_metadata`、`parse_masked_document`、`normalize_atomic_correction_items`、`build_sheet_manifest`、`build_ntpc_submission_packet`
@@ -129,7 +161,7 @@ python3 -m unittest discover -s tests
 python3 scripts/run_phase_acceptance.py
 ```
 
-各項 acceptance script 位於 `scripts/`，涵蓋 source policy、data layout、source adapters、jurisdiction registry、packaging、scenario matrix、fixture pipeline、two-stage flow。`run_phase_acceptance.py` 目前預期會回報 `g2_fixture_baseline=false`，因為 unsupported synthetic fixture claims 必須 fail closed。
+各項 acceptance script 位於 `scripts/`，涵蓋 source policy、data layout、source adapters、jurisdiction registry、packaging、scenario matrix、fixture pipeline、two-stage flow。`run_phase_acceptance.py` 目前預期會回報 `g2_fixture_baseline=false` 並以非 0 結束，因為 unsupported synthetic fixture claims 必須 fail closed。
 
 ## Fixture baseline
 
