@@ -1,183 +1,221 @@
 # cc-crossbeam-tw
 
-> Taiwan interior-renovation submission document assistant prototype. It turns
-> procedure routing, submission packets, correction notices, source references,
-> and human confirmation into auditable MCP workflows for New Taipei City.
+[![secure-web verification](https://github.com/trionnemesis/cc-crossbeam-tw/actions/workflows/secure-web.yml/badge.svg)](https://github.com/trionnemesis/cc-crossbeam-tw/actions/workflows/secure-web.yml)
+[![Public prototype](https://img.shields.io/badge/status-public%20prototype-2563eb)](https://trionnemesis.github.io/cc-crossbeam-tw/)
 
-![Python](https://img.shields.io/badge/Python-%3E%3D3.10%2C%3C4.0-3776AB?logo=python&logoColor=white)
-![Status](https://img.shields.io/badge/status-public%20prototype-3b82f6)
+> **Crossbeam TW** is a source-bound document workflow for Taiwan interior-renovation submissions: route the case, check the packet, decompose corrections, and preserve the evidence needed for human review.
 
-## Project at a glance
+This repository is a prototype for architects, interior-renovation contractors, and administrative coordinators who spend more time reconciling procedures, drawings, correction notices, and missing documents than making the professional decisions themselves.
 
-`cc-crossbeam-tw` is a source-bound MCP server prototype for Taiwan
-interior-renovation submission work. The project keeps the legal/auditability
-domain in `tw_law_mcp` and treats AI as a bounded assistant:
+`tw-law-mcp` turns that work into deterministic, traceable MCP tools. A compatible assistant can inspect the local corpus and source snapshots, return the relevant artifacts and uncertainty, and stop for human confirmation when the evidence is incomplete. It is deliberately not a legal-advice or professional-sign-off system.
 
-- procedure routing and confidence signals for New Taipei City workflows;
-- document packets, metadata manifests, correction-item normalization, and draft responses;
-- source snapshots, audit gates, and human-in-the-loop confirmation; and
-- metadata-only inputs, source snapshots, and human confirmation for uncertain cases.
+[繁體中文說明](./README.zh-TW.md) · [Public Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) · [Architecture](./ARCHITECTURE.md) · [Acceptance evidence](./ACCEPTANCE.md) · [Contributing](./CONTRIBUTING.md)
 
-This is a public prototype, not a legal-opinion, professional-signoff, or approval-guarantee service.
+## Contents
 
-### Public links
+- [Why](#why)
+- [How it works](#how-it-works)
+- [What it does](#what-it-does)
+- [Trust and security](#trust-and-security)
+- [Install](#install)
+- [Example prompts](#example-prompts)
+- [Current status](#current-status)
+- [Repository map](#repository-map)
+- [Research and design](#research-and-design)
+- [FAQ](#faq)
 
-- [Project Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) — public workflow overview and examples.
-- [Packaging ADR](docs/ADR-0001-packaging-strategy.md) — standalone MCP packaging decision.
-- [Feature matrix](docs/cc-crossbeam-feature-matrix.md) — workflow mapping and scope comparison.
-- [Scenario feature matrix](docs/tw-scenario-feature-matrix.md) — supported workflow scenarios and evidence boundaries.
-- [Contribution guide](CONTRIBUTING.md) — setup, verification, and privacy rules for changes.
+## Why
 
-The detailed Traditional Chinese product description and current delivery status follow below.
+The difficult part of an interior-renovation submission is rarely a single lookup. The difficult part is keeping these questions connected without losing their provenance:
 
-**台灣室內裝修送審文件助手原型**，首發場景聚焦新北市室內裝修申請與補正流程。
+- Which procedure is this case actually approaching?
+- Which documents, drawings, photos, and evidence belong in the submission packet?
+- What does each correction item ask someone to change or confirm?
+- Which source, date, gate, and professional decision support the next action?
 
-這個專案要處理的是建築師、室內裝修業者、代辦人員反覆遇到的文件整理問題：
+Crossbeam TW is built around that handoff. It keeps domain logic in a standalone MCP server, makes uncertainty visible, and treats human review as a required output rather than an exception.
 
-> 這個案子到底走哪個程序？要備哪些文件？主管機關公文上的補正意見，每一條對應到什麼資料、圖說、法規來源或人工確認？
+The current domain focus is New Taipei interior renovation. Other jurisdictions are represented by registry stubs and fail closed until their source corpus and review policy are ready.
 
-`tw-law-mcp` 把這些判斷拆成可追溯的 MCP 工具，讓 Codex、Claude Code 或其他支援 MCP 的 AI 助手在回答時先查本機工具與來源快照，而不是憑印象補法條、補文件或直接下結論。
+## How it works
 
-GitHub Pages 上手頁位於 [`docs/index.html`](docs/index.html)。
+The repository has two related surfaces:
 
-## 適合誰
+1. **Standalone MCP server** — the host-neutral `tw-law-mcp` domain boundary used by Codex, Claude Code, or another MCP client.
+2. **Secure Web pilot** — a local or single-user browser workflow for case intake, quarantine upload, masking, HITL review, artifacts, audit events, and deletion.
 
-- 建築師事務所：整理室內裝修圖說審核、竣工查驗、變更使用併室內裝修竣工查驗的文件缺口。
-- 室內裝修業者：把補正公文拆成逐條任務，確認哪些資料要回頭找業主、廠商或專業人員補。
-- 代辦與行政窗口：先做程序分流、送件 packet、缺件清單與回覆草稿，再交由專業人員確認。
-- AI/工程團隊：把室內裝修送審流程包成 deterministic、source-bound 的 MCP server，避免 agent 任意編造。
+```mermaid
+flowchart LR
+    A[Masked text + file metadata] --> B[tw-law-mcp]
+    B --> C[Procedure route]
+    B --> D[Submission packet]
+    B --> E[Correction items]
+    B --> F[Sources + gates]
+    C --> G[Human confirmation]
+    D --> G
+    E --> G
+    F --> G
 
-## 能幫上什麼忙
-
-| 日常工作 | 工具能做的事 | 產出 |
-|---|---|---|
-| 程序分流 | 判斷案件比較接近圖說審核、竣工查驗、變更使用併室內裝修竣工查驗或簡易室內裝修，並標示信心分數 | `procedure_stage_signal`、人工確認問題 |
-| 送件前檢核 | 依程序階段整理新北市室內裝修文件 packet | 文件清單、缺件提示、source-bound references |
-| 補正公文整理 | 解析已遮罩公文，拆成 atomic correction items | 補正項目清單、回覆草稿、專業確認包 |
-| 消防與防火相關提示 | 標示可能涉及消防設備、防火區劃、防火門、材料證明的文件需求 | routing 結果、需要消防或建築專業確認的問題 |
-| 稽核與溯源 | 支援的分析與補正流程保留來源、日期、gate 與人工介入狀態 | law snapshot、run metadata、acceptance output |
-
-## 先講邊界
-
-這不是法律判斷工具，也不是專業簽證工具。
-
-| 會做 | 不會做 |
-|---|---|
-| 整理程序、文件、來源與待確認事項 | 判定案件合法或違建 |
-| 依已遮罩資料與 metadata 做程序分流 | 保證審查必過 |
-| 產生補正回覆草稿與專業確認包 | 出具法律意見或合規保證 |
-| 標示可能相關的條文、來源 URL、authority rank、as-of date | 替代建築師、消防設備師或其他專業人員簽證 |
-| 對消防、防火區劃、材料證明做文件 routing | 做消防設計結論或材料真偽判斷 |
-
-在程序分流、文件 routing 與補正流程中，若資料不足、涉及專業裁量或低信心，流程會 fail closed 並產生 human-in-the-loop 待確認項目；不會以這些輸出取代專業判斷。
-
-## 可以怎麼問 AI 助手
-
-本機 MCP 設定完成後，可以在 Codex 或 Claude Code 內這樣問：
-
-```text
-請使用 tw-law-mcp 先跑 run_phase_acceptance。
-接著根據我提供的已遮罩文件文字與檔案 metadata，判斷目前比較接近：
-圖說審核、竣工查驗、變更使用併室內裝修竣工查驗、簡易室內裝修。
-請輸出 procedure_stage 信心分數、需要的人工確認問題、會用到的 corpus packs、產出的 artifacts，以及不能判定的原因。
-不要輸出法律意見、合規保證、消防設計結論、材料真偽結論或審查必過承諾。
+    R[Raw browser bytes] --> Q[Private quarantine]
+    Q --> W[Python scan + masking worker]
+    W --> A
+    G --> S[Sanitized artifacts]
 ```
 
-其他常見問題：
+The Secure Web path keeps raw bytes out of the Next.js request body, model prompt, and logs. The local Codex provider is a worker credential only; it is never the website identity provider.
 
-- 「這份案件的檔案 metadata 在這裡，幫我判斷比較接近圖說審核還是竣工查驗？信心多高？還缺什麼資訊？」
-- 「幫我依竣工查驗階段，產生新北市室內裝修的送件文件 packet。」
-- 「這是遮罩過的補正公文，幫我拆成逐條補正項目，哪些需要建築師、消防或材料廠商確認？」
+## What it does
 
-## 資料隱私原則
+| Workflow | Output |
+| --- | --- |
+| **Procedure routing** | A candidate stage for drawing review, completion inspection, change-of-use plus completion inspection, or simple interior renovation, with confidence and follow-up questions. |
+| **Submission checks** | A New Taipei document packet, missing-item list, sheet/file manifest, and source-bound references. |
+| **Correction handling** | Masked-document parsing, atomic correction items, response-draft inputs, and a professional confirmation packet. |
+| **Professional-domain routing** | Evidence prompts for fire equipment, fire compartments, egress, and material documentation. |
+| **Auditability** | Law snapshots, source policy, authority rank, license/update status, as-of dates, gate results, and human-review state. |
 
-不要直接把以下內容貼進 prompt：
+The server currently exposes 38 MCP tools across law lookup, source policy, procedure routing, document handling, HITL, scenario checks, and acceptance gates. The canonical tool surface is in [`tw_law_mcp/server.py`](./tw_law_mcp/server.py); the complete scenario index is in [`docs/tw-scenario-feature-matrix.md`](./docs/tw-scenario-feature-matrix.md).
 
-- 未遮罩姓名、地址、電話、身分證字號。
-- title block、原始圖說、raw drawing、raw PDF。
-- 客戶授權範圍不明的完整申請文件。
+## Trust and security
 
-建議只提供：
+Read the [Secure Web runbook](./docs/runbook-secure-web.md) before handling real documents.
 
-- 已遮罩公文文字。
-- 檔名、圖號、頁名、sheet type、文件類型等 metadata。
-- 已去識別化 fixture 或測試案例。
-- 人工確認答案與 acceptance output。
+| Boundary | Rule |
+| --- | --- |
+| **Input** | Prefer masked text, metadata, and de-identified fixtures. Raw drawings and raw PDFs do not belong in an assistant prompt. |
+| **Quarantine** | Browser uploads go directly to private quarantine and must pass scan, validation, and masking before downstream access. |
+| **Model** | Only the minimum sanitized fields cross the model boundary. Local Codex execution is read-only, ephemeral, and isolated from the repository. |
+| **Domain** | Taiwan procedure and source logic stays in Python `tw_law_mcp`; the web layer does not duplicate legal decisions. |
+| **Uncertainty** | Missing evidence, low confidence, professional judgment, and unsupported claims fail closed and produce human-review work. |
+| **Production** | Cloud mode rejects local auth, local storage, local DB, in-process jobs, and the local Codex provider until approved adapters and credentials exist. |
 
-工具本身也以 metadata-only boundary 設計，避免 raw drawing 或 raw PDF 內容直接進入 agent prompt。
+This prototype does **not**:
 
-## 快速開始
+- decide whether a case is legal, illegal, or an unauthorized construction;
+- provide legal opinions, compliance guarantees, or professional certification;
+- guarantee that an authority will approve a submission;
+- decide fire-design conclusions or verify material authenticity;
+- enable PDF/image parsing in the authenticated worker; only UTF-8 TXT intake is supported in the pilot.
+
+## Install
+
+### MCP server
+
+Requirements: Python `>=3.10`.
 
 ```bash
 git clone https://github.com/trionnemesis/cc-crossbeam-tw.git
 cd cc-crossbeam-tw
+
+python3 -m unittest discover -s tests
+python3 scripts/run_phase_acceptance.py
 python3 scripts/tw_law_mcp_stdio.py
 ```
 
-這會啟動一個持續等待 JSON-RPC 輸入的 long-running MCP process；完成測試後可用 `Ctrl-C` 結束。
+The repository already includes host configuration:
 
-- Codex App：專案設定在 `.codex/config.toml`。
-- Claude Code：專案設定在 `.mcp.json`。
-- 啟動後建議先執行 `python3 -m unittest discover -s tests` 與目標 acceptance script。`run_phase_acceptance` 是 aggregate trust gate；目前預期會以非 0 結束並回報 `all_passed=false`，因為 production G2 尚未接入 approved real de-identified cases，unsupported synthetic fixture claims 必須 fail closed。
+- Codex App: [`.codex/config.toml`](./.codex/config.toml)
+- Claude Code: [`.mcp.json`](./.mcp.json)
 
-## 目前狀態
+### Secure Web pilot
 
-- 版本：`0.4.0` prototype。
-- 首發地區：新北市。
-- 首發案型：室內裝修。
-- 主線已完成 1~6 組開發：P0 source-policy、procedure/HITL、G2 synthetic fixture contract、metadata extraction、jurisdiction registry、standalone MCP packaging。
-- Phase 2.1-2.6 / Step 6 已完成：split data layout、source adapter contracts、scenario MCP tools、hardened scenario matrix evaluation、two-stage contractor flow skeleton。
-- 目前使用 P0 fixture corpus 與 synthetic de-identified cases 驗證流程契約；production 導入前仍需 approved real de-identified cases 與 live official-source ingestion/refresh workflow。G2 synthetic baseline 只能證明 schema、gate 與 HITL contract，不能支撐真實案件 claim。
-- 新北市以外 jurisdiction 已預留 registry，但目前 fail closed，不主動作答。
-
-本專案的產品流程概念源自 cc-crossbeam 的文件審查與補正回覆流程；只借流程，不搬美國 ADU 法規。對照表見 [`docs/cc-crossbeam-feature-matrix.md`](docs/cc-crossbeam-feature-matrix.md)。
-
-<details>
-<summary><strong>開發者資訊：MCP 工具、測試與 acceptance gates</strong></summary>
-
-## 技術形態
-
-- Python stdio JSON-RPC MCP subset。
-- Standalone MCP server first；Codex / Claude Code 是 thin wrappers。
-- 封裝決策見 [`docs/ADR-0001-packaging-strategy.md`](docs/ADR-0001-packaging-strategy.md)。
-
-## MCP 工具分類
-
-目前 server 宣告 38 個 MCP tools：
-
-- 法規與來源查詢：`list_law_packs`、`search_law`、`get_article`、`verify_citation`、`check_claim_support`、`get_local_rule`、`build_law_snapshot`
-- 程序分流：`resolve_tw_scenario`、`resolve_procedure_stage_confidence`、`resolve_procedure_requirements`
-- 專業文件 routing：`check_fire_equipment_routing`、`check_fire_compartment_evidence`、`check_material_evidence`、`detect_illegal_construction_reference`
-- 文件處理：`extract_file_metadata`、`parse_masked_document`、`normalize_atomic_correction_items`、`build_sheet_manifest`、`build_ntpc_submission_packet`
-- 兩階段補正流程：`run_tw_corrections_analysis`、`run_tw_corrections_response`
-- HITL：`build_hitl_confirmation_packet`、`apply_hitl_confirmations`
-- 來源政策與 fallback：`get_source_policy`、`compare_source_policies`、`plan_web_search_fallback`
-- 驗收：`run_phase_acceptance`、`run_audit_gates`、`run_source_policy_acceptance`、`run_jurisdiction_registry_acceptance`、`run_packaging_acceptance`、`run_scenario_matrix_acceptance`、`run_data_layout_acceptance`、`run_source_adapter_acceptance`、`run_fixture_pipeline_acceptance`、`run_two_stage_flow_acceptance`、`get_fixture_baseline_status`、`list_jurisdictions`
-
-## 測試
+Requirements: Node.js `22.x` and Python `3.14` for the current CI path.
 
 ```bash
-python3 -m unittest discover -s tests
-python3 scripts/run_phase_acceptance.py
+cd web
+npm ci
+npm run test:run
+npm run typecheck
+npm run lint
+npm run build
+npm start
 ```
 
-各項 acceptance script 位於 `scripts/`，涵蓋 source policy、data layout、source adapters、jurisdiction registry、packaging、scenario matrix、fixture pipeline、two-stage flow。`run_phase_acceptance.py` 目前預期會回報 `g2_fixture_baseline=false` 並以非 0 結束，因為 unsupported synthetic fixture claims 必須 fail closed。
+In a second terminal, start the local worker:
 
-## Fixture baseline
+```bash
+python3 -m worker.secure_worker.server
+```
 
-- `fixtures/g2_baseline.json`：12 份 synthetic de-identified cases、84 個 atomic correction items，用於驗證 schema、gate、HITL flow contract。
-- `tw_law_mcp/data/fixtures/tw_scenario_queries.json`：台灣場景矩陣，涵蓋 `procedure`、`fire_equipment`、`fire_compartment`、`material`、`completion_packet`、`response_draft` 六類，每類至少 5 題，另含 `web_fallback`。
+Use [`web/.env.example`](./web/.env.example) and [`docs/runbook-secure-web.md`](./docs/runbook-secure-web.md) for runtime modes, callback configuration, private storage, and external-credential gates. Production deployment is not implied by a green local build.
 
-## 專案結構
+## Example prompts
+
+The safe pattern is to ask for a workflow artifact and its evidence boundary, not an unqualified legal conclusion.
 
 ```text
-tw_law_mcp/     # MCP server core and data
-scripts/        # stdio entrypoint and acceptance scripts
-tests/          # unittest coverage
-fixtures/       # G2 contract baseline
-docs/           # GitHub Pages, ADR, feature matrix
+Please run run_phase_acceptance with tw-law-mcp first.
+Using only the masked document text and file metadata I provide, route this case
+among drawing review, completion inspection, change-of-use plus completion inspection,
+and simple interior renovation.
+Return the procedure-stage confidence, human-confirmation questions, corpus packs,
+artifacts, and reasons for anything you cannot determine.
+Do not provide a legal opinion, compliance guarantee, fire-design conclusion,
+material-authenticity conclusion, or approval promise.
 ```
 
-實務場景主索引見 [`docs/tw-scenario-feature-matrix.md`](docs/tw-scenario-feature-matrix.md)。
+Other useful requests:
 
-</details>
+- “Build a New Taipei completion-inspection submission packet and list missing evidence.”
+- “Parse this masked correction notice into atomic items and produce a human-confirmation packet.”
+- “Show the source IDs, as-of dates, failed gates, and unsupported claims behind this artifact.”
+
+## Current status
+
+This is a **public prototype**, not a production compliance product.
+
+| Area | Current state |
+| --- | --- |
+| Domain core | `0.4.0`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
+| MCP packaging | Standalone stdio JSON-RPC subset first; Codex and Claude Code remain thin wrappers. |
+| Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, and two-stage flow skeleton. |
+| Fixture evidence | 12 synthetic de-identified cases and 84 atomic correction items validate schema, gates, and HITL contract. They do not support real-case claims. |
+| Secure Web | Local and single-user pilot paths cover identity, case authorization, direct quarantine upload, masking, Codex-auth worker analysis, HITL, audit, and verified deletion. |
+| Still required | Approved real de-identified cases, live official-source ingestion/refresh, public Google/LINE acceptance, and a separately sandboxed PDF/image parser. |
+
+The latest local and CI evidence is recorded in [`ACCEPTANCE.md`](./ACCEPTANCE.md). Missing external credentials are intentionally reported as pending; they are not replaced with synthetic “production accepted” claims.
+
+## Repository map
+
+| Path | Purpose |
+| --- | --- |
+| [`tw_law_mcp/`](./tw_law_mcp/) | Deterministic law/source repository and MCP server. |
+| [`worker/`](./worker/) | Secure upload, masking, domain-processing, and local model-provider boundary. |
+| [`web/`](./web/) | Next.js Secure Web pilot and browser-facing workflow. |
+| [`scripts/`](./scripts/) | stdio entrypoint, snapshots, and targeted acceptance runners. |
+| [`tests/`](./tests/) | Python MCP/domain/worker tests. |
+| [`web/tests/`](./web/tests/) | Web, auth, upload, HITL, and security-boundary tests. |
+| [`docs/`](./docs/) | Pages site, ADRs, runbook, and feature matrices. |
+| [`ACCEPTANCE.md`](./ACCEPTANCE.md) | Current verification evidence and remaining gates. |
+| [`TASK-STATE.md`](./TASK-STATE.md) | Secure Web implementation state and external blockers. |
+
+## Research and design
+
+- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — runtime topology, trust boundaries, state machines, and data classes.
+- [`docs/ADR-0001-packaging-strategy.md`](./docs/ADR-0001-packaging-strategy.md) — why standalone MCP comes before host-specific plugins.
+- [`docs/ADR-0002-secure-web.md`](./docs/ADR-0002-secure-web.md) — single-user Secure Web decisions and production flip conditions.
+- [`docs/cc-crossbeam-feature-matrix.md`](./docs/cc-crossbeam-feature-matrix.md) — relationship to the original `cc-crossbeam` workflow.
+- [`docs/tw-scenario-feature-matrix.md`](./docs/tw-scenario-feature-matrix.md) — Taiwan scenario coverage and acceptance mapping.
+- [`docs/runbook-secure-web.md`](./docs/runbook-secure-web.md) — operational setup, backup, deletion, and incident response.
+
+## FAQ
+
+### Is this a legal-advice tool?
+
+No. It organizes procedures, documents, sources, uncertainty, and questions for professionals. It does not issue legal opinions, compliance guarantees, or sign-off.
+
+### Can I upload a client PDF or drawing?
+
+Not to the current authenticated worker. The pilot accepts UTF-8 TXT and metadata only. Raw files, title blocks, and unmasked personal information require an approved quarantine and parser policy first.
+
+### Why is the MCP server separate from the web app?
+
+The domain and source-of-truth boundary should remain host-neutral. Codex, Claude Code, the Secure Web, and future consumers should call the same deterministic tools instead of copying legal logic into each surface.
+
+### Is the Secure Web production-ready?
+
+No. Local acceptance is documented, while live Google/LINE credentials, public HTTPS acceptance, approved production storage/model adapters, official-source refresh, and real de-identified cases remain explicit gates.
+
+### Where did the workflow idea come from?
+
+The product workflow is informed by [`cc-crossbeam`](https://github.com/trionnemesis/cc-crossbeam)'s document-review and correction-response flow. The Taiwan corpus, jurisdiction rules, source policy, and safety boundaries are implemented independently for this repository.

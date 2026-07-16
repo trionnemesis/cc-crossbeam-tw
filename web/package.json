@@ -1,0 +1,44 @@
+{
+  "name": "cc-crossbeam-secure-web",
+  "version": "0.1.0",
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0 <23.0.0"
+  },
+  "scripts": {
+    "dev": "NEXT_TELEMETRY_DISABLED=1 next dev --hostname 127.0.0.1",
+    "build": "NEXT_TELEMETRY_DISABLED=1 next build --webpack",
+    "start": "NEXT_TELEMETRY_DISABLED=1 next start --hostname 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "acceptance:homepage": "tsx scripts/e2e-homepage.ts",
+    "acceptance:upload": "tsx scripts/e2e-upload.ts"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "1.6.23",
+    "better-auth": "1.6.23",
+    "better-sqlite3": "12.11.1",
+    "drizzle-orm": "0.45.2",
+    "lucide-react": "1.24.0",
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "server-only": "0.0.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.2",
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.19.15",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "4.3.2",
+    "tsx": "4.23.0",
+    "typescript": "6.0.3",
+    "vitest": "4.1.10"
+  }
+}
