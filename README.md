@@ -2,6 +2,7 @@
 
 [![secure-web verification](https://github.com/trionnemesis/cc-crossbeam-tw/actions/workflows/secure-web.yml/badge.svg)](https://github.com/trionnemesis/cc-crossbeam-tw/actions/workflows/secure-web.yml)
 [![Public prototype](https://img.shields.io/badge/status-public%20prototype-2563eb)](https://trionnemesis.github.io/cc-crossbeam-tw/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 > **Crossbeam TW** is a source-bound document workflow for Taiwan interior-renovation submissions: route the case, check the packet, decompose corrections, and preserve the evidence needed for human review.
 
@@ -23,6 +24,7 @@ This repository is a prototype for architects, interior-renovation contractors, 
 - [Repository map](#repository-map)
 - [Research and design](#research-and-design)
 - [FAQ](#faq)
+- [Related projects](#related-projects)
 
 ## Why
 
@@ -63,6 +65,8 @@ flowchart LR
 ```
 
 The Secure Web path keeps raw bytes out of the Next.js request body, model prompt, and logs. The local Codex provider is a worker credential only; it is never the website identity provider.
+
+> **TODO (demo asset):** the [GitHub Pages site](https://trionnemesis.github.io/cc-crossbeam-tw/) is static documentation, not a hosted instance of the Secure Web pilot — the actual HITL flow requires local Google/LINE auth and a locally running worker, which cannot be captured as a real screenshot or GIF from this environment. A walkthrough recording of the Secure Web HITL flow (intake → quarantine → masking → human confirmation) is still needed; track it as a follow-up once the pilot runs somewhere reachable for capture.
 
 ## What it does
 
@@ -218,4 +222,9 @@ No. Local acceptance is documented, while live Google/LINE credentials, public H
 
 ### Where did the workflow idea come from?
 
-The product workflow is informed by [`cc-crossbeam`](https://github.com/trionnemesis/cc-crossbeam)'s document-review and correction-response flow. The Taiwan corpus, jurisdiction rules, source policy, and safety boundaries are implemented independently for this repository.
+The product workflow is informed by `cc-crossbeam`'s document-review and correction-response flow (see [Related projects](#related-projects) for its current status). The Taiwan corpus, jurisdiction rules, source policy, and safety boundaries are implemented independently for this repository.
+
+## Related projects
+
+- **cc-crossbeam** — the original document-review and correction-response workflow that this repository's product design is informed by. It is not currently published as a public repository under this account, so no working link is available; the relationship is described in the [FAQ](#faq) above.
+- [**AIhouskeeperagent**](https://github.com/trionnemesis/AIhouskeeperagent) — a related project from the same author, covering AI-assisted operations/housekeeping agent work.

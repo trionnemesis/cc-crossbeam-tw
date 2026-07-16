@@ -2,6 +2,7 @@
 
 [![secure-web verification](https://github.com/trionnemesis/cc-crossbeam-tw/actions/workflows/secure-web.yml/badge.svg)](https://github.com/trionnemesis/cc-crossbeam-tw/actions/workflows/secure-web.yml)
 [![Public prototype](https://img.shields.io/badge/status-public%20prototype-2563eb)](https://trionnemesis.github.io/cc-crossbeam-tw/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 > **Crossbeam TW** 是一個以來源為邊界的台灣室內裝修送審文件工作流：先做程序分流、檢核送件 packet、拆解補正項目，再保留專業人員進行人工確認所需的證據。
 
@@ -23,6 +24,7 @@
 - [Repository 結構](#repository-結構)
 - [研究與設計](#研究與設計)
 - [常見問題](#常見問題)
+- [相關專案](#相關專案)
 
 ## 為什麼做
 
@@ -63,6 +65,8 @@ flowchart LR
 ```
 
 Secure Web 流程會讓 raw bytes 不進入 Next.js request body、model prompt 或 logs。Local Codex provider 只是 worker 的模型 credential，不是網站的登入身份提供者。
+
+> **TODO（demo 素材）：** [GitHub Pages 網站](https://trionnemesis.github.io/cc-crossbeam-tw/)是靜態文件站，並非 Secure Web pilot 的實際部署——真正的 HITL 流程需要 local Google／LINE 登入與本機執行的 worker，無法在目前環境中截到真實畫面或錄成 GIF。Secure Web HITL 流程（intake → quarantine → masking → 人工確認）的操作錄影仍待補；等 pilot 有可截圖的可連線環境後再補上。
 
 ## 可以做什麼
 
@@ -216,4 +220,9 @@ Domain 與 source-of-truth boundary 應該保持 host-neutral。Codex、Claude C
 
 ### 這個 workflow 的概念從哪裡來？
 
-產品流程參考 [`cc-crossbeam`](https://github.com/trionnemesis/cc-crossbeam) 的文件審查與補正回覆流程；本 repository 的台灣 corpus、jurisdiction rules、source policy 與安全邊界則獨立實作。
+產品流程參考 `cc-crossbeam` 的文件審查與補正回覆流程（目前狀態見下方[相關專案](#相關專案)）；本 repository 的台灣 corpus、jurisdiction rules、source policy 與安全邊界則獨立實作。
+
+## 相關專案
+
+- **cc-crossbeam** — 本專案產品設計參考的原始文件審查與補正回覆 workflow。目前這個帳號下沒有對應的公開 repository，因此沒有可用連結；關係說明見上方[常見問題](#常見問題)。
+- [**AIhouskeeperagent**](https://github.com/trionnemesis/AIhouskeeperagent) — 同作者的另一個相關專案，聚焦 AI-assisted 維運／housekeeping agent 工作。
