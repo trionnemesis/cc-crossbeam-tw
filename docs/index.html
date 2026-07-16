@@ -22,6 +22,7 @@
         <div class="nav-links">
           <span class="pilot-status">Public prototype</span>
           <a href="#value">工作流程</a>
+          <a href="#secure-web">Secure Web</a>
           <a href="#start">快速開始</a>
         </div>
       </div>
@@ -172,6 +173,57 @@
         </div>
       </section>
 
+      <section id="secure-web">
+        <div class="section-inner">
+          <h2>Secure Web 單人試用</h2>
+          <p class="section-lead">
+            除了 tw-law-mcp 工具本身，專案也提供一個瀏覽器介面：案件建立、原始檔案隔離上傳、Python 遮罩與既有法規分析、人工確認、稽核事件與可驗證刪除，串成單一使用者可重跑的試用流程。目前僅支援 local 與 single-user 兩種模式，尚未開放正式多人上線。
+          </p>
+          <div class="value-grid">
+            <article class="card">
+              <h3>案件與身分</h3>
+              <p>Google 登入驗證擁有者身分，LINE 作為輔助入口通道；案件建立與存取授權都綁定同一個應用內部使用者 ID。</p>
+            </article>
+            <article class="card">
+              <h3>隔離上傳</h3>
+              <p>瀏覽器檔案直傳私有 quarantine；只有 worker 能掃描、驗證、遮罩並晉升物件，下游只讀得到已清洗的內容。</p>
+            </article>
+            <article class="card">
+              <h3>遮罩與分析</h3>
+              <p>Python worker 執行去識別化遮罩與既有法規分析；本機 Codex 只在唯讀、ephemeral、隔離的環境下執行，不是網站身分提供者。</p>
+            </article>
+            <article class="card">
+              <h3>HITL 與刪除</h3>
+              <p>人工確認、結果與稽核事件檢視、帳號與 LINE 連結管理，加上可驗證的檔案刪除迴圈。</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-inner">
+          <h2>Secure Web 會做與還不能做</h2>
+          <div class="split">
+            <article class="card note">
+              <h3>目前可以做的事</h3>
+              <ul>
+                <li>單機 loopback 或單人 HTTPS 部署，Google OIDC 限定 owner email。</li>
+                <li>UTF-8 TXT 與檔案 metadata 的隔離上傳、遮罩與人工確認。</li>
+                <li>本機已登入的 Codex CLI 以唯讀、ephemeral worker 身分執行分析。</li>
+              </ul>
+            </article>
+            <article class="card risk">
+              <h3>還不能做的事</h3>
+              <ul>
+                <li>正式多人 production 上線；cloud 模式會擋掉本機 auth、storage、DB 與本機 Codex provider，直到有 approved 服務憑證。</li>
+                <li>PDF 或圖片解析；authenticated worker 目前只收 UTF-8 TXT。</li>
+                <li>取代 Google/LINE 正式憑證、official-source 即時同步與真實案件驗收證據。</li>
+              </ul>
+            </article>
+          </div>
+        </div>
+      </section>
+
       <section id="safety">
         <div class="section-inner">
           <h2>資料邊界</h2>
@@ -224,6 +276,23 @@ cd cc-crossbeam-tw</code></pre>
                 <h3>先跑驗收</h3>
                 <p>確認本機工具、fixtures、source adapters、scenario matrix 與 two-stage flow 都能重跑；aggregate trust gate 會保留 G2 fail-closed 狀態。</p>
                 <pre><code>python3 scripts/run_phase_acceptance.py</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">4</div>
+              <div>
+                <h3>啟動 Secure Web（可選）</h3>
+                <p>需求：Node.js 22.x、Python 3.14。</p>
+                <pre><code>cd web
+npm ci
+npm run dev</code></pre>
+              </div>
+            </article>
+            <article class="step">
+              <div class="step-number">5</div>
+              <div>
+                <h3>另開終端機啟動本機 worker</h3>
+                <pre><code>python3 -m worker.secure_worker.server</code></pre>
               </div>
             </article>
           </div>
@@ -288,7 +357,8 @@ cd cc-crossbeam-tw</code></pre>
       <div class="section-inner">
         <p>
           cc-crossbeam-tw 只提供來源可追溯的文件輔助，不提供法律意見、合規保證、違章認定或審查必過承諾。
-          實務場景主索引見 <a href="./tw-scenario-feature-matrix.md">tw-scenario-feature-matrix.md</a>。
+          實務場景主索引見 <a href="./tw-scenario-feature-matrix.md">tw-scenario-feature-matrix.md</a>；
+          Secure Web 部署模式與事件應變見 <a href="./runbook-secure-web.md">runbook-secure-web.md</a>。
         </p>
       </div>
     </footer>
