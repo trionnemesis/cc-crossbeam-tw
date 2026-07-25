@@ -1228,6 +1228,7 @@ class LawRepository:
         )
         return {
             "routing_status": status,
+            "matched_terms": [marker for marker in markers if marker in haystack],
             "professional_confirmation_required": True,
             "required_evidence": [
                 "消防專業確認",
@@ -1380,6 +1381,7 @@ class LawRepository:
         jurisdiction: str = "ntpc",
         procedure_stage: str | None = None,
         as_of_date: str | None = None,
+        data_governance_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         resolved_as_of_date = as_of_date or self._default_as_of_date()
         as_of_date_basis = "user_supplied_date" if as_of_date else "corpus_as_of_date"
@@ -1406,16 +1408,16 @@ class LawRepository:
             as_of_date_basis=as_of_date_basis,
             user_supplied_date=as_of_date,
         )
+        fire_routing = self.check_fire_equipment_routing(text=text)
+        compartment = self.check_fire_compartment_evidence(atomic_items=atomic_items, text=text)
         scenario = self.resolve_tw_scenario(
             jurisdiction={"central": "TW", "local": jurisdiction},
             case_type="室內裝修",
             procedure_stage=stage,
-            fire_equipment_change_flag="消防" in text or "灑水" in text or "火警" in text,
-            partition_change_flag="防火" in text or "風管" in text,
+            fire_equipment_change_flag=bool(fire_routing["matched_terms"]),
+            partition_change_flag=bool(compartment["matched_terms"]),
             material_evidence_status="missing" if "材料" in text else None,
         )
-        fire_routing = self.check_fire_equipment_routing(text=text)
-        compartment = self.check_fire_compartment_evidence(atomic_items=atomic_items, text=text)
         material = self.check_material_evidence(text=text)
         packet = self.build_ntpc_submission_packet(stage, jurisdiction)
         hitl_packet = self.build_hitl_confirmation_packet(
@@ -1424,10 +1426,7 @@ class LawRepository:
         )
         audit = self.run_audit_gates(
             correction_items=[self._analysis_gate_item(item) for item in atomic_items],
-            data_governance_state=self._fixture_data_governance_state(
-                fixture_id="analysis",
-                baseline_id="tw-two-stage-flow",
-            ),
+            data_governance_state=data_governance_state,
         )
         artifacts = {
             "document_parsed.json": parsed,
@@ -1529,6 +1528,10 @@ class LawRepository:
                 {"filename": "M001_材料表.pdf", "file_type": "drawing_file"},
             ],
             procedure_stage="竣工查驗",
+            data_governance_state=self._fixture_data_governance_state(
+                fixture_id="two-stage-flow",
+                baseline_id="tw-two-stage-flow",
+            ),
         )
         response = self.run_tw_corrections_response(
             analysis_artifacts=analysis["artifacts"],
@@ -2137,10 +2140,6 @@ class LawRepository:
         if not correction_lines and document_parsed.get("subject"):
             correction_lines.append(document_parsed["subject"])
 
-        article_meta = self._find_article(law_name, article) if law_name and article else {}
-        citation_status = "verified" if article_meta else "unresolved"
-        source_authority_rank = article_meta.get("source_authority_rank", 5)
-        source_license_status = article_meta.get("source_license_status", "unknown")
         items = []
         for index, line in enumerate(correction_lines, start=1):
             parts = [
@@ -2151,14 +2150,24 @@ class LawRepository:
             for part in parts:
                 if not self._looks_like_correction(part):
                     continue
+                inferred = (
+                    self._find_article(law_name, article)
+                    if law_name and article
+                    else self._infer_correction_article(part)
+                )
+                resolved_law_name = inferred.get("law_name") if inferred else law_name
+                resolved_article = inferred.get("article") if inferred else article
+                citation_status = "verified" if inferred else "unresolved"
+                source_authority_rank = inferred.get("source_authority_rank", 5)
+                source_license_status = inferred.get("source_license_status", "unknown")
                 item_index = len(items) + 1
                 items.append(
                     {
                         "item_id": f"auto-{item_index:03d}",
                         "source_span": line,
                         "text": part,
-                        "law_name": law_name,
-                        "article": article,
+                        "law_name": resolved_law_name,
+                        "article": resolved_article,
                         "citation_status": citation_status,
                         "source_authority_rank": source_authority_rank,
                         "source_license_status": source_license_status,
@@ -2174,6 +2183,37 @@ class LawRepository:
             "item_count": len(items),
             "human_review_required": bool(items),
         }
+
+    def _infer_correction_article(self, text: str) -> dict[str, Any]:
+        """Resolve only corpus-backed, unambiguous correction markers.
+
+        The allowlist intentionally stays narrow. Multiple matching articles or
+        unknown wording remain unresolved for human review.
+        """
+        marker_groups = (
+            (
+                "建築物室內裝修管理辦法",
+                "23",
+                ("申請書", "權利證明", "室內裝修圖說", "簽章", "建築師"),
+            ),
+            (
+                "建築法",
+                "77-2",
+                ("供公眾使用", "審查許可"),
+            ),
+            (
+                "新北市建築物室內裝修審核及查驗作業事項規範",
+                "3",
+                ("圖說審核", "竣工查驗", "變更使用", "簡易室內裝修"),
+            ),
+        )
+        candidates = []
+        for candidate_law, candidate_article, markers in marker_groups:
+            if any(marker in text for marker in markers):
+                article_meta = self._find_article(candidate_law, candidate_article)
+                if article_meta:
+                    candidates.append(article_meta)
+        return candidates[0] if len(candidates) == 1 else {}
 
     def build_sheet_manifest(self, files: list[dict[str, Any]]) -> dict[str, Any]:
         metadata = self.extract_file_metadata(files)["files"]
@@ -2626,6 +2666,19 @@ class LawRepository:
                 "downgraded_items": ["all"],
                 "details": [{"missing": ["consent_record_id or user_consent_record_id"]}],
             }
+        consent_values = [
+            data_governance_state.get(key)
+            for key in consent_keys
+            if key in data_governance_state
+        ]
+        if not any(isinstance(value, str) and value.strip() for value in consent_values):
+            return {
+                "gate": "data_governance",
+                "status": "failed",
+                "reason": "invalid_data_governance_consent_record",
+                "downgraded_items": ["all"],
+                "details": [{"invalid": ["consent_record_id or user_consent_record_id"]}],
+            }
         missing = sorted(required - set(data_governance_state.keys()))
         if missing:
             return {
@@ -2688,6 +2741,14 @@ class LawRepository:
                     }
                 ],
             }
+        if not data_governance_state.get("deletion_request_supported"):
+            return {
+                "gate": "data_governance",
+                "status": "failed",
+                "reason": "deletion_request_not_supported",
+                "downgraded_items": ["all"],
+                "details": [{"deletion_request_supported": False}],
+            }
         if not isinstance(data_governance_state.get("audit_log_enabled"), bool):
             return {
                 "gate": "data_governance",
@@ -2695,6 +2756,14 @@ class LawRepository:
                 "reason": "audit_log_flag_invalid",
                 "downgraded_items": ["all"],
                 "details": [{"audit_log_enabled": data_governance_state.get("audit_log_enabled")}],
+            }
+        if not data_governance_state.get("audit_log_enabled"):
+            return {
+                "gate": "data_governance",
+                "status": "failed",
+                "reason": "audit_log_not_enabled",
+                "downgraded_items": ["all"],
+                "details": [{"audit_log_enabled": False}],
             }
         return {
             "gate": "data_governance",

@@ -13,6 +13,7 @@ from worker.secure_worker.codex_provider import CodexAnalysis, CodexCliProvider
 from worker.secure_worker.config import WorkerConfig
 from worker.secure_worker.masking import find_sensitive_classes, mask_sensitive_text
 from worker.secure_worker.processing import process_review, process_upload
+from worker.secure_worker.residual_pii import find_residual_sensitive_classes
 from worker.secure_worker.upload import UploadRejected, accept_upload, bytes_stream
 
 
@@ -22,6 +23,7 @@ CREATE TABLE upload_record (
  id TEXT PRIMARY KEY, case_id TEXT, uploader_user_id TEXT, object_key TEXT,
  display_label TEXT, expected_size INTEGER, max_size INTEGER, expected_media_type TEXT,
  expected_sha256 TEXT, token_hash TEXT UNIQUE, token_expires_at INTEGER, state TEXT,
+ data_governance_json TEXT,
  quarantine_path TEXT, sanitized_path TEXT, error_code TEXT, created_at INTEGER,
  updated_at INTEGER, uploaded_at INTEGER
 );
@@ -73,15 +75,22 @@ class SecureWorkerTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
-    def _intent(self, upload_id: str, token: str, data: bytes) -> str:
+    def _intent(
+        self,
+        upload_id: str,
+        token: str,
+        data: bytes,
+        *,
+        include_governance: bool = True,
+    ) -> str:
         digest = hashlib.sha256(data).hexdigest()
         connection = sqlite3.connect(self.database_path)
         connection.execute(
             "INSERT INTO upload_record "
             "(id, case_id, uploader_user_id, object_key, display_label, expected_size, max_size, "
-            "expected_media_type, expected_sha256, token_hash, token_expires_at, state, "
+            "expected_media_type, expected_sha256, token_hash, token_expires_at, state, data_governance_json, "
             "created_at, updated_at) VALUES (?, 'case-1', 'user-1', ?, '測試文件', ?, ?, "
-            "'text/plain', ?, ?, 4102444800, 'pending', 0, 0)",
+            "'text/plain', ?, ?, 4102444800, 'pending', ?, 0, 0)",
             (
                 upload_id,
                 f"case-1/{upload_id}",
@@ -89,6 +98,22 @@ class SecureWorkerTests(unittest.TestCase):
                 self.config.max_upload_bytes,
                 digest,
                 hashlib.sha256(token.encode()).hexdigest(),
+                (
+                    json.dumps(
+                        {
+                            "consent_record_id": f"consent:{upload_id}",
+                            "collection_purpose": "case_document_correction_analysis",
+                            "raw_file_retention_policy": "private_until_case_deletion",
+                            "masked_file_retention_policy": "private_until_case_deletion",
+                            "raw_file_access_scope": "isolated_worker_only",
+                            "deletion_request_supported": True,
+                            "audit_log_enabled": True,
+                            "vectorization_allowed": True,
+                        }
+                    )
+                    if include_governance
+                    else None
+                ),
             ),
         )
         connection.commit()
@@ -116,6 +141,48 @@ class SecureWorkerTests(unittest.TestCase):
             "NTPC-12345",
         ]:
             self.assertNotIn(canary, result.text)
+
+    def test_residual_detector_is_independent_and_conservative(self) -> None:
+        self.assertIn(
+            "identity_document_candidate",
+            find_residual_sensitive_classes("居留證號：AB-12345678"),
+        )
+        self.assertIn(
+            "person_name_candidate",
+            find_residual_sensitive_classes("申請人：歐陽小明"),
+        )
+        self.assertIn(
+            "unlabeled_name_candidate",
+            find_residual_sensitive_classes("聯絡窗口為 王小明，請另行確認。"),
+        )
+        self.assertIn(
+            "mixed_identity_candidate",
+            find_residual_sensitive_classes("請核對文件 AB123456。"),
+        )
+        self.assertEqual(find_residual_sensitive_classes("[MASKED_NAME] 補正通知"), [])
+
+    def test_worker_rejects_binary_media_before_quarantine(self) -> None:
+        upload_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+        token = "p" * 43
+        raw = b"%PDF-1.7 test"
+        digest = self._intent(upload_id, token, raw)
+        connection = sqlite3.connect(self.database_path)
+        connection.execute(
+            "UPDATE upload_record SET expected_media_type = 'application/pdf' WHERE id = ?",
+            (upload_id,),
+        )
+        connection.commit()
+        connection.close()
+        with self.assertRaises(UploadRejected):
+            accept_upload(
+                self.config,
+                token=token,
+                upload_id=upload_id,
+                media_type="application/pdf",
+                content_length=len(raw),
+                content_sha256=digest,
+                stream=bytes_stream(raw),
+            )
 
     def test_model_receives_only_masked_payload_from_real_upload_path(self) -> None:
         upload_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -147,6 +214,38 @@ class SecureWorkerTests(unittest.TestCase):
         self.assertGreater(provider.received.count("[MASKED_"), 0)
         for canary in ["王小明", "12345678", "AB123456", "文化段123地號", "文化路一段1號"]:
             self.assertNotIn(canary, provider.received)
+
+    def test_missing_governance_blocks_model_delivery(self) -> None:
+        upload_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        token = "g" * 43
+        raw = "請補申請書。".encode()
+        digest = self._intent(upload_id, token, raw, include_governance=False)
+        accept_upload(
+            self.config,
+            token=token,
+            upload_id=upload_id,
+            media_type="text/plain",
+            content_length=len(raw),
+            content_sha256=digest,
+            stream=bytes_stream(raw),
+        )
+
+        class FailingProvider:
+            def analyze(self, _masked_text, _context):  # type: ignore[no-untyped-def]
+                raise AssertionError("model must not be called without governance")
+
+        process_upload(
+            replace(self.config, codex_enabled=True),
+            upload_id,
+            codex_provider=FailingProvider(),  # type: ignore[arg-type]
+        )
+        connection = sqlite3.connect(self.database_path)
+        model_status = connection.execute(
+            "SELECT model_status FROM analysis_run WHERE upload_id = ?",
+            (upload_id,),
+        ).fetchone()[0]
+        connection.close()
+        self.assertEqual(model_status, "blocked_by_data_governance")
 
     def test_single_user_worker_accepts_https_origin_but_stays_on_loopback(self) -> None:
         with patch("worker.secure_worker.config.REPO_ROOT", Path(self.temp.name)):
@@ -200,9 +299,17 @@ class SecureWorkerTests(unittest.TestCase):
             "SELECT deterministic_result_json, model_status FROM analysis_run WHERE upload_id = ?",
             (upload_id,),
         ).fetchone()
+        audit_metadata = json.loads(
+            connection.execute(
+                "SELECT metadata_json FROM audit_event WHERE entity_id = ?",
+                (upload_id,),
+            ).fetchone()[0]
+        )
         connection.close()
         self.assertEqual(upload["state"], "sanitized")
         self.assertEqual(run["model_status"], "disabled")
+        self.assertEqual(audit_metadata["data_governance_status"], "passed")
+        self.assertEqual(audit_metadata["consent_record_id"], f"consent:{upload_id}")
         sanitized = Path(upload["sanitized_path"]).read_text()
         combined = sanitized + run["deterministic_result_json"]
         for canary in ["A123456789", "owner@example.com", "文化路一段123號"]:

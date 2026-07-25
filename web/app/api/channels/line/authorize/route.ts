@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAppSession } from "@/src/auth/session";
 import { isSameOriginMutation } from "@/src/auth/request-origin";
-import { LineLinkService } from "@/src/channels/line";
+import { InvalidLineLinkTokenError, LineLinkService } from "@/src/channels/line";
 import { parseRuntimeConfig } from "@/src/config/runtime";
 import { getLocalDatabase } from "@/src/db/local";
 
@@ -17,7 +17,10 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { linkToken?: string };
     const result = await new LineLinkService(getLocalDatabase(config)).createAuthenticatedChallenge(session.user.id, body.linkToken ?? "");
     return NextResponse.json(result, { status: 201, headers: { "cache-control": "no-store" } });
-  } catch {
-    return NextResponse.json({ error: "INVALID_OR_EXPIRED_LINK" }, { status: 400 });
+  } catch (error) {
+    if (error instanceof InvalidLineLinkTokenError || error instanceof SyntaxError) {
+      return NextResponse.json({ error: "INVALID_OR_EXPIRED_LINK" }, { status: 400 });
+    }
+    throw error;
   }
 }

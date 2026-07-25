@@ -5,6 +5,16 @@ import { createMemoryDatabase } from "@/src/db/local";
 import { invitation, tenant, user } from "@/src/db/schema";
 
 describe("application database", () => {
+  it("initializes the governance migration at schema version 4", () => {
+    const database = createMemoryDatabase();
+    const columns = database.sqlite
+      .prepare("PRAGMA table_info(upload_record)")
+      .all() as Array<{ name: string }>;
+    expect(database.sqlite.pragma("user_version", { simple: true })).toBe(4);
+    expect(columns.some((column) => column.name === "data_governance_json")).toBe(true);
+    database.sqlite.close();
+  });
+
   it("enforces case membership at the data boundary", async () => {
     const database = createMemoryDatabase();
     const store = new AppStore(database);

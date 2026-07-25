@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .masking import find_sensitive_classes
+from .residual_pii import find_residual_sensitive_classes
 
 
 OUTPUT_SCHEMA = {
@@ -57,7 +57,7 @@ class CodexCliProvider:
         self.timeout_seconds = timeout_seconds
 
     def analyze(self, masked_text: str, deterministic_context: dict[str, Any]) -> CodexAnalysis:
-        residual = find_sensitive_classes(masked_text)
+        residual = find_residual_sensitive_classes(masked_text)
         if residual:
             raise ValueError(f"model payload still contains sensitive classes: {', '.join(residual)}")
         if len(masked_text) > 24_000:

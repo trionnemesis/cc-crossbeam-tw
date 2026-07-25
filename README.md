@@ -95,6 +95,8 @@ Read the [Secure Web runbook](./docs/runbook-secure-web.md) before handling real
 
 This prototype does **not**:
 
+- enable multi-user case invitations or reviewer collaboration; the current
+  `reviewer` and `invitation` schema is reserved for a future adapter;
 - decide whether a case is legal, illegal, or an unauthorized construction;
 - provide legal opinions, compliance guarantees, or professional certification;
 - guarantee that an authority will approve a submission;

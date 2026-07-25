@@ -17,7 +17,8 @@ export const uploadIntentInput = z.object({
   displayLabel: z.string().trim().min(1).max(80).default("案件文件"),
   size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
   mediaType: z.string().refine((value) => allowedMediaTypes.has(value), "Unsupported media type"),
-  sha256: z.string().regex(/^[a-f0-9]{64}$/)
+  sha256: z.string().regex(/^[a-f0-9]{64}$/),
+  governanceAccepted: z.literal(true)
 });
 
 export type UploadIntentInput = z.infer<typeof uploadIntentInput>;
@@ -42,6 +43,7 @@ export class UploadService {
     const token = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(token).digest("hex");
     const uploadId = randomUUID();
+    const consentRecordId = randomUUID();
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
     const objectKey = `${caseId}/${uploadId}`;
 
@@ -57,6 +59,16 @@ export class UploadService {
       expectedSha256: input.sha256,
       tokenHash,
       tokenExpiresAt: expiresAt,
+      dataGovernanceJson: JSON.stringify({
+        consent_record_id: consentRecordId,
+        collection_purpose: "case_document_correction_analysis",
+        raw_file_retention_policy: "private_until_case_deletion",
+        masked_file_retention_policy: "private_until_case_deletion",
+        raw_file_access_scope: "isolated_worker_only",
+        deletion_request_supported: true,
+        audit_log_enabled: true,
+        vectorization_allowed: true
+      }),
       state: "pending"
     });
 

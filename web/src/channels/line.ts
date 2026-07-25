@@ -12,6 +12,13 @@ function hash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export class InvalidLineLinkTokenError extends Error {
+  constructor() {
+    super("INVALID_LINE_LINK_TOKEN");
+    this.name = "InvalidLineLinkTokenError";
+  }
+}
+
 export function verifyLineSignature(rawBody: string, signature: string, secret: string): boolean {
   if (!signature || !secret) return false;
   const expected = createHmac("sha256", secret).update(rawBody).digest();
@@ -29,7 +36,7 @@ export class LineLinkService {
 
   async createAuthenticatedChallenge(userId: string, linkToken: string) {
     if (!/^[A-Za-z0-9._~-]{20,512}$/.test(linkToken)) {
-      throw new Error("INVALID_LINE_LINK_TOKEN");
+      throw new InvalidLineLinkTokenError();
     }
     const nonce = randomBytes(32).toString("base64url");
     const now = new Date();

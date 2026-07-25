@@ -22,7 +22,8 @@ describe("upload intent service", () => {
       displayLabel: "補正通知",
       size: 14,
       mediaType: "text/plain",
-      sha256
+      sha256,
+      governanceAccepted: true
     });
 
     expect(intent.uploadUrl).toMatch(/^http:\/\/127\.0\.0\.1:8787\/upload\/[A-Za-z0-9_-]+$/);
@@ -30,6 +31,11 @@ describe("upload intent service", () => {
     expect(new Date(intent.expiresAt).getTime()).toBeGreaterThan(Date.now());
     const [stored] = database.db.select().from(uploadRecord).all();
     expect(stored.tokenHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.parse(stored.dataGovernanceJson ?? "{}")).toMatchObject({
+      collection_purpose: "case_document_correction_analysis",
+      raw_file_access_scope: "isolated_worker_only",
+      vectorization_allowed: true
+    });
     expect(intent.uploadUrl).not.toContain(stored.tokenHash);
     database.sqlite.close();
   });
@@ -50,11 +56,18 @@ describe("upload intent service", () => {
       store,
       parseRuntimeConfig({ APP_MODE: "local", APP_ORIGIN: "http://127.0.0.1:3000" })
     );
-    const base = { displayLabel: "文件", size: 10, mediaType: "text/plain", sha256: "a".repeat(64) };
+    const base = {
+      displayLabel: "文件",
+      size: 10,
+      mediaType: "text/plain",
+      sha256: "a".repeat(64),
+      governanceAccepted: true
+    };
 
     await expect(service.createIntent(otherId, caseItem.id, base)).rejects.toThrow("unavailable");
     await expect(service.createIntent(ownerId, caseItem.id, { ...base, size: 30 * 1024 * 1024 })).rejects.toThrow();
     await expect(service.createIntent(ownerId, caseItem.id, { ...base, mediaType: "text/html" })).rejects.toThrow();
+    await expect(service.createIntent(ownerId, caseItem.id, { ...base, governanceAccepted: false })).rejects.toThrow();
     database.sqlite.close();
   });
 });

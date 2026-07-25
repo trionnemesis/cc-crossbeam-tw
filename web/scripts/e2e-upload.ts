@@ -49,7 +49,8 @@ async function main() {
       displayLabel: "案件文件",
       size: 1,
       mediaType: "text/plain",
-      sha256: "0".repeat(64)
+      sha256: "0".repeat(64),
+      governanceAccepted: true
     })
   });
   const foreignDelete = await fetch(`${webOrigin}/api/cases/${caseId}`, {
@@ -69,7 +70,8 @@ async function main() {
       displayLabel: "案件文件",
       size: raw.length,
       mediaType: "text/plain",
-      sha256: digest
+      sha256: digest,
+      governanceAccepted: true
     })
   });
   if (intentResponse.status !== 201) {

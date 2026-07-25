@@ -1,7 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { sanitizeReturnTo } from "@/src/auth/redirect";
-import { LineLinkService, verifyLineSignature } from "@/src/channels/line";
+import { InvalidLineLinkTokenError, LineLinkService, verifyLineSignature } from "@/src/channels/line";
 import { createMemoryDatabase } from "@/src/db/local";
 import { channelIdentity, user } from "@/src/db/schema";
 
@@ -30,6 +30,15 @@ describe("LINE account linking", () => {
     await expect(service.isLinked(userId)).resolves.toBe(true);
     await expect(service.unlink(userId)).resolves.toEqual({ unlinked: 1 });
     await expect(service.isLinked(userId)).resolves.toBe(false);
+    database.sqlite.close();
+  });
+
+  it("classifies only malformed link tokens as client errors", async () => {
+    const database = createMemoryDatabase();
+    const service = new LineLinkService(database);
+    await expect(service.createAuthenticatedChallenge("user-1", "short")).rejects.toBeInstanceOf(
+      InvalidLineLinkTokenError
+    );
     database.sqlite.close();
   });
 });

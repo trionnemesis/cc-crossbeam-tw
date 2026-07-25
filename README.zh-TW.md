@@ -95,6 +95,8 @@ Secure Web 流程會讓 raw bytes 不進入 Next.js request body、model prompt 
 
 這個原型**不會**：
 
+- 啟用多人案件邀請或 reviewer 協作；目前 `reviewer` 與 `invitation` schema
+  僅為未來 adapter 預留；
 - 判定案件合法、違法或違建；
 - 出具法律意見、合規保證或專業簽證；
 - 保證主管機關一定核准送件；

@@ -48,6 +48,34 @@ def _question_rows(result: dict[str, Any]) -> list[dict[str, str]]:
     return rows
 
 
+def _data_governance_state(row: dict[str, Any]) -> dict[str, Any] | None:
+    raw = row.get("data_governance_json")
+    if not isinstance(raw, str) or not raw:
+        return None
+    try:
+        stored = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(stored, dict):
+        return None
+    return {
+        **stored,
+        "pii_detection_status": "completed",
+        "pii_masking_status": "done",
+    }
+
+
+def _data_governance_passed(result: dict[str, Any]) -> bool:
+    run_meta = result.get("artifacts", {}).get("run_meta.json", {})
+    gates = run_meta.get("gate_results") or run_meta.get("gates") or []
+    return any(
+        isinstance(gate, dict)
+        and gate.get("gate") == "data_governance"
+        and gate.get("status") == "passed"
+        for gate in gates
+    )
+
+
 def process_upload(
     config: WorkerConfig,
     upload_id: str,
@@ -81,15 +109,17 @@ def process_upload(
         sanitized_sha = hashlib.sha256(masking.text.encode("utf-8")).hexdigest()
 
         repository = load_default_repository()
+        governance_state = _data_governance_state(row)
         deterministic = repository.run_tw_corrections_analysis(
             text=masking.text,
             files=[{"filename": "masked-document.txt", "file_type": "document_file"}],
             jurisdiction="ntpc",
+            data_governance_state=governance_state,
         )
         deterministic_json = json.dumps(deterministic, ensure_ascii=False, sort_keys=True)
         model_result: dict[str, Any] | None = None
         model_status = "disabled"
-        if config.codex_enabled:
+        if config.codex_enabled and _data_governance_passed(deterministic):
             provider = codex_provider or CodexCliProvider()
             model = provider.analyze(masking.text, deterministic)
             model_result = {
@@ -98,6 +128,8 @@ def process_upload(
                 "human_review_required": model.human_review_required,
             }
             model_status = "completed"
+        elif config.codex_enabled:
+            model_status = "blocked_by_data_governance"
 
         now = int(time.time())
         run_id = str(uuid.uuid4())
@@ -171,6 +203,14 @@ def process_upload(
                             "artifact_kind": "masked_text",
                             "mask_total": masking.total,
                             "model_status": model_status,
+                            "data_governance_status": (
+                                "passed" if _data_governance_passed(deterministic) else "failed"
+                            ),
+                            "consent_record_id": (
+                                governance_state.get("consent_record_id")
+                                if governance_state
+                                else None
+                            ),
                         },
                         sort_keys=True,
                     ),

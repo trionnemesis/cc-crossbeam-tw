@@ -539,6 +539,100 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertEqual(item["source_license_status"], "unknown")
         self.assertTrue(item["human_review_required"])
 
+    def test_normalize_atomic_items_binds_only_unambiguous_corpus_markers(self):
+        normalized = self.repo.normalize_atomic_correction_items(
+            {"sections": {"說明": ["請補申請書。", "請補室內裝修圖說審核資料。"]}}
+        )
+
+        resolved, ambiguous = normalized["atomic_correction_items"]
+        self.assertEqual(resolved["law_name"], "建築物室內裝修管理辦法")
+        self.assertEqual(resolved["article"], "23")
+        self.assertEqual(resolved["citation_status"], "verified")
+        self.assertIsNone(ambiguous["law_name"])
+        self.assertEqual(ambiguous["citation_status"], "unresolved")
+
+    def test_analysis_uses_caller_governance_and_shared_fire_routing_signals(self):
+        state = {
+            "consent_record_id": "consent-real-001",
+            "collection_purpose": "case_document_correction_analysis",
+            "raw_file_retention_policy": "private_until_case_deletion",
+            "masked_file_retention_policy": "private_until_case_deletion",
+            "raw_file_access_scope": "isolated_worker_only",
+            "pii_detection_status": "completed",
+            "pii_masking_status": "done",
+            "deletion_request_supported": True,
+            "audit_log_enabled": True,
+            "vectorization_allowed": True,
+        }
+        analysis = self.repo.run_tw_corrections_analysis(
+            text="說明一：請補探測器與管道間相關圖說。",
+            data_governance_state=state,
+        )
+        artifacts = analysis["artifacts"]
+        gates = {
+            gate["gate"]: gate
+            for gate in artifacts["run_meta.json"]["gate_results"]
+        }
+
+        self.assertEqual(gates["data_governance"]["status"], "passed")
+        self.assertIn(
+            "tw-central-fire-equipment",
+            artifacts["tw_scenario_routing.json"]["source_pack_ids"],
+        )
+        self.assertIn(
+            "tw-fire-compartment-and-egress",
+            artifacts["tw_scenario_routing.json"]["source_pack_ids"],
+        )
+
+    def test_analysis_fails_governance_without_a_real_consent_record(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text="說明一：請補申請書。",
+            data_governance_state={
+                "consent_record_id": " ",
+                "collection_purpose": "case_document_correction_analysis",
+                "raw_file_retention_policy": "private_until_case_deletion",
+                "masked_file_retention_policy": "private_until_case_deletion",
+                "raw_file_access_scope": "isolated_worker_only",
+                "pii_detection_status": "completed",
+                "pii_masking_status": "done",
+                "deletion_request_supported": True,
+                "audit_log_enabled": True,
+                "vectorization_allowed": True,
+            },
+        )
+        governance = next(
+            gate
+            for gate in analysis["artifacts"]["run_meta.json"]["gate_results"]
+            if gate["gate"] == "data_governance"
+        )
+
+        self.assertEqual(governance["status"], "failed")
+        self.assertEqual(governance["reason"], "invalid_data_governance_consent_record")
+
+    def test_data_governance_requires_deletion_and_audit_guarantees(self):
+        base = {
+            "consent_record_id": "consent-real-002",
+            "collection_purpose": "case_document_correction_analysis",
+            "raw_file_retention_policy": "private_until_case_deletion",
+            "masked_file_retention_policy": "private_until_case_deletion",
+            "raw_file_access_scope": "isolated_worker_only",
+            "pii_detection_status": "completed",
+            "pii_masking_status": "done",
+            "deletion_request_supported": True,
+            "audit_log_enabled": True,
+            "vectorization_allowed": True,
+        }
+
+        deletion = self.repo._gate_data_governance(
+            {**base, "deletion_request_supported": False}
+        )
+        audit = self.repo._gate_data_governance(
+            {**base, "audit_log_enabled": False}
+        )
+
+        self.assertEqual(deletion["reason"], "deletion_request_not_supported")
+        self.assertEqual(audit["reason"], "audit_log_not_enabled")
+
     def test_run_tw_corrections_analysis_fails_claim_gate_without_support(self):
         analysis = self.repo.run_tw_corrections_analysis(
             text=(

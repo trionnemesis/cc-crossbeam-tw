@@ -131,6 +131,7 @@ CREATE TABLE IF NOT EXISTS upload_record (
   expected_sha256 TEXT NOT NULL,
   token_hash TEXT NOT NULL UNIQUE,
   token_expires_at INTEGER NOT NULL,
+  data_governance_json TEXT,
   state TEXT NOT NULL DEFAULT 'pending',
   quarantine_path TEXT,
   sanitized_path TEXT,
@@ -179,7 +180,7 @@ CREATE TABLE IF NOT EXISTS hitl_question (
   UNIQUE(analysis_run_id, question_key)
 );
 CREATE INDEX IF NOT EXISTS hitl_case_status_idx ON hitl_question(case_id, status);
-PRAGMA user_version = 3;
+PRAGMA user_version = 4;
 `;
 
 export interface LocalDatabase {
@@ -201,6 +202,13 @@ export function initializeSqlite(sqlite: Database.Database): void {
   if (!analysisColumns.some((column) => column.name === "response_result_json")) {
     sqlite.exec("ALTER TABLE analysis_run ADD COLUMN response_result_json TEXT");
   }
+  const uploadColumns = sqlite
+    .prepare("PRAGMA table_info(upload_record)")
+    .all() as Array<{ name: string }>;
+  if (!uploadColumns.some((column) => column.name === "data_governance_json")) {
+    sqlite.exec("ALTER TABLE upload_record ADD COLUMN data_governance_json TEXT");
+  }
+  sqlite.pragma("user_version = 4");
 }
 
 export function createMemoryDatabase(): LocalDatabase {

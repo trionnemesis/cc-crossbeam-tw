@@ -439,6 +439,7 @@ TOOL_SCHEMAS: list[JSON] = [
                 "jurisdiction": {"type": "string"},
                 "procedure_stage": {"type": "string"},
                 "as_of_date": {"type": "string"},
+                "data_governance_state": {"type": "object"},
             },
             "required": ["text"],
         },

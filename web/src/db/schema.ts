@@ -204,6 +204,7 @@ export const uploadRecord = sqliteTable(
     expectedSha256: text("expected_sha256").notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     tokenExpiresAt: integer("token_expires_at", { mode: "timestamp" }).notNull(),
+    dataGovernanceJson: text("data_governance_json"),
     state: text("state", {
       enum: [
         "pending",

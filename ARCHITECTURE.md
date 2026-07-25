@@ -1,5 +1,9 @@
 # Secure Web architecture
 
+The current target is local or single-user. `reviewer` memberships and
+`invitation` records are reserved schema only; there is no supported case-level
+invitation or reviewer onboarding flow yet.
+
 ## Requirements
 
 | ID | Requirement | Component | Verification |

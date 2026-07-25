@@ -13,9 +13,11 @@ export default async function SourcesPage() {
   const database = getLocalDatabase(config);
   const cases = await new AppStore(database).listCases(session.user.id);
   const workflow = new WorkflowStore(database);
-  const analyses = await Promise.all(cases.map((item) => workflow.latestAnalysis(session.user.id, item.id)));
+  const analyses = (
+    await Promise.all(cases.map((item) => workflow.listAnalyses(session.user.id, item.id)))
+  ).flat();
   const unique = new Map<string, SourceView>();
-  for (const source of analyses.flatMap((analysis) => analysis?.sources ?? [])) {
+  for (const source of analyses.flatMap((analysis) => analysis.sources)) {
     unique.set(`${source.lawName}|${source.article}|${source.sourceUrl}`, source);
   }
   return (

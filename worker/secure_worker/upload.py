@@ -17,12 +17,6 @@ class UploadRejected(Exception):
 
 
 def _media_matches(media_type: str, prefix: bytes) -> bool:
-    if media_type == "application/pdf":
-        return prefix.startswith(b"%PDF-")
-    if media_type == "image/png":
-        return prefix.startswith(b"\x89PNG\r\n\x1a\n")
-    if media_type == "image/jpeg":
-        return prefix.startswith(b"\xff\xd8\xff")
     if media_type == "text/plain":
         return b"\x00" not in prefix
     return False

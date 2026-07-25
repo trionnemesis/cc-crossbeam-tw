@@ -43,6 +43,7 @@ export interface CorrectionView {
 
 export interface AnalysisView {
   id: string;
+  createdAt: Date;
   status: string;
   modelStatus: string;
   humanReviewRequired: boolean;
@@ -70,6 +71,7 @@ function text(value: unknown, fallback = ""): string {
 
 function parseAnalysis(row: {
   id: string;
+  createdAt: Date;
   status: string;
   modelStatus: string;
   deterministicResultJson: string | null;
@@ -87,6 +89,7 @@ function parseAnalysis(row: {
 
   return {
     id: row.id,
+    createdAt: row.createdAt,
     status: row.status,
     modelStatus: row.modelStatus,
     humanReviewRequired: Boolean(deterministic.human_review_required),
@@ -135,10 +138,16 @@ export class WorkflowStore {
   }
 
   async latestAnalysis(userId: string, caseId: string): Promise<AnalysisView | null> {
+    const analyses = await this.listAnalyses(userId, caseId);
+    return analyses[0] ?? null;
+  }
+
+  async listAnalyses(userId: string, caseId: string): Promise<AnalysisView[]> {
     await requireCaseMembership(this.memberships, userId, caseId);
-    const [row] = await this.database.db
+    const rows = await this.database.db
       .select({
         id: analysisRun.id,
+        createdAt: analysisRun.createdAt,
         status: analysisRun.status,
         modelStatus: analysisRun.modelStatus,
         deterministicResultJson: analysisRun.deterministicResultJson,
@@ -147,9 +156,8 @@ export class WorkflowStore {
       })
       .from(analysisRun)
       .where(eq(analysisRun.caseId, caseId))
-      .orderBy(desc(analysisRun.createdAt))
-      .limit(1);
-    return row ? parseAnalysis(row) : null;
+      .orderBy(desc(analysisRun.createdAt));
+    return rows.map(parseAnalysis);
   }
 
   async listQuestions(userId: string, caseId?: string) {
@@ -264,7 +272,6 @@ export class WorkflowStore {
     }
     const tombstone = createHash("sha256").update(caseId).digest("hex");
     this.database.sqlite.transaction(() => {
-      this.database.db.delete(auditEvent).where(eq(auditEvent.caseId, caseId)).run();
       this.database.db.delete(caseRecord).where(eq(caseRecord.id, caseId)).run();
       this.database.db.insert(auditEvent).values({
         id: randomUUID(),

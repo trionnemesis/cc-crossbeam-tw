@@ -26,7 +26,13 @@ const stateLabel: Record<string, string> = {
   rejected: "已拒絕"
 };
 
-export default async function CaseDetailPage({ params }: { params: Promise<{ caseId: string }> }) {
+export default async function CaseDetailPage({
+  params,
+  searchParams
+}: {
+  params: Promise<{ caseId: string }>;
+  searchParams: Promise<{ run?: string }>;
+}) {
   const session = await requireAppSession();
   const { caseId } = await params;
   const config = parseRuntimeConfig(process.env);
@@ -41,11 +47,13 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ cas
   }
   const uploads = await new UploadService(database, store, config).listForCase(session.user.id, caseId);
   const workflow = new WorkflowStore(database);
-  const [analysis, questions, audit] = await Promise.all([
-    workflow.latestAnalysis(session.user.id, caseId),
+  const [analyses, questions, audit, query] = await Promise.all([
+    workflow.listAnalyses(session.user.id, caseId),
     workflow.listQuestions(session.user.id, caseId),
-    workflow.listAudit(session.user.id, caseId)
+    workflow.listAudit(session.user.id, caseId),
+    searchParams
   ]);
+  const analysis = analyses.find((item) => item.id === query.run) ?? analyses[0] ?? null;
   return (
       <main className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-12">
         <Link className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--muted)]" href="/cases"><ArrowLeft size={17} />返回案件</Link>
@@ -103,6 +111,21 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ cas
               <span className="text-xs text-[var(--muted)]">Model: {analysis.modelStatus} · Run: {analysis.status}</span>
             </div>
 
+            {analyses.length > 1 ? (
+              <nav aria-label="分析歷程" className="mt-5 flex flex-wrap gap-2">
+                {analyses.map((item, index) => (
+                  <Link
+                    aria-current={item.id === analysis.id ? "page" : undefined}
+                    className={`rounded-full border px-3 py-2 text-xs ${item.id === analysis.id ? "border-[var(--ink)] bg-[var(--ink)] text-white" : "border-[var(--border)] bg-white text-[var(--muted)]"}`}
+                    href={`/cases/${caseId}?run=${encodeURIComponent(item.id)}`}
+                    key={item.id}
+                  >
+                    第 {analyses.length - index} 次 · {item.createdAt.toLocaleString("zh-TW")}
+                  </Link>
+                ))}
+              </nav>
+            ) : null}
+
             {analysis.modelSummary ? <div className="mt-6 rounded-[6px] bg-[var(--ink)] p-6 text-white"><p className="text-xs tracking-[0.14em] text-white/55 uppercase">Masked AI summary</p><p className="mt-3 leading-7 text-white/82">{analysis.modelSummary}</p></div> : null}
 
             <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -141,7 +164,7 @@ export default async function CaseDetailPage({ params }: { params: Promise<{ cas
 
         <section aria-labelledby="delete-title" className="border-t border-[var(--border)] py-10">
           <h2 className="text-lg font-medium text-[var(--danger)]" id="delete-title">刪除與保存</h2>
-          <p className="mt-2 mb-5 max-w-2xl text-sm leading-6 text-[var(--muted)]">刪除會移除 quarantine、masked artifact、analysis 與 HITL，只保留不含內容的 audit tombstone。</p>
+          <p className="mt-2 mb-5 max-w-2xl text-sm leading-6 text-[var(--muted)]">刪除會移除 quarantine、masked artifact、analysis 與 HITL；既有不含文件內容的 audit events 會去除案件關聯後保留，並新增 deletion tombstone。</p>
           <DeleteCaseButton caseId={caseId} />
         </section>
       </main>

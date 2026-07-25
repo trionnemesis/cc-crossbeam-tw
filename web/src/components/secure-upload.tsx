@@ -25,6 +25,7 @@ async function sha256(file: File): Promise<string> {
 
 export function SecureUpload({ caseId }: { caseId: string }) {
   const [file, setFile] = useState<File | null>(null);
+  const [governanceAccepted, setGovernanceAccepted] = useState(false);
   const [state, setState] = useState<UploadState>("idle");
   const [message, setMessage] = useState("選擇 UTF-8 TXT 文件。原始檔案不會經過 Next.js。");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +67,8 @@ export function SecureUpload({ caseId }: { caseId: string }) {
           displayLabel: "案件文件",
           size: file.size,
           mediaType: file.type || "application/octet-stream",
-          sha256: digest
+          sha256: digest,
+          governanceAccepted
         })
       });
       if (!intentResponse.ok) throw new Error("INTENT_REJECTED");
@@ -88,6 +90,7 @@ export function SecureUpload({ caseId }: { caseId: string }) {
 
   function reset() {
     setFile(null);
+    setGovernanceAccepted(false);
     setState("idle");
     setMessage("選擇 UTF-8 TXT 文件。原始檔案不會經過 Next.js。")
     if (inputRef.current) inputRef.current.value = "";
@@ -125,12 +128,22 @@ export function SecureUpload({ caseId }: { caseId: string }) {
       </label>
 
       {file ? <p className="mt-4 text-sm text-[var(--muted)]">已選擇：僅在本機顯示，不保存原始檔名。</p> : null}
+      <label className="mt-4 flex items-start gap-3 text-sm leading-6 text-[var(--muted)]">
+        <input
+          checked={governanceAccepted}
+          className="mt-1 size-4"
+          disabled={busy}
+          onChange={(event) => setGovernanceAccepted(event.target.checked)}
+          type="checkbox"
+        />
+        <span>我確認此文件用於案件補正分析；raw 與 masked 檔案保存在 private runtime，直到案件刪除，模型僅可接收完成遮罩的內容。</span>
+      </label>
       <p aria-live="polite" className="mt-3 min-h-6 text-sm text-[var(--muted)]">{message}</p>
 
       <div className="mt-5 flex flex-wrap gap-3">
         <button
           className="inline-flex min-h-11 items-center gap-2 rounded-[6px] bg-[var(--ink)] px-5 py-3 text-sm text-white disabled:opacity-45"
-          disabled={!file || state !== "idle"}
+          disabled={!file || !governanceAccepted || state !== "idle"}
           onClick={upload}
           type="button"
         >
