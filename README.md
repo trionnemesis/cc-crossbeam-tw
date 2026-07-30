@@ -172,7 +172,7 @@ This is a **public prototype**, not a production compliance product.
 
 | Area | Current state |
 | --- | --- |
-| Domain core | `0.4.0`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
+| Domain core | `0.4.1`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
 | MCP packaging | Standalone stdio JSON-RPC subset first; Codex and Claude Code remain thin wrappers. |
 | Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, and two-stage flow skeleton. |
 | Fixture evidence | 12 synthetic de-identified cases and 84 atomic correction items validate schema, gates, and HITL contract. They do not support real-case claims. |

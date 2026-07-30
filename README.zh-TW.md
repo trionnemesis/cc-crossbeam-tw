@@ -170,7 +170,7 @@ Runtime mode、callback 設定、private storage 與 external-credential gates �
 
 | 範圍 | 目前狀態 |
 | --- | --- |
-| Domain core | `0.4.0`；新北市室內裝修已啟用；其他 jurisdiction fail closed。 |
+| Domain core | `0.4.1`；新北市室內裝修已啟用；其他 jurisdiction fail closed。 |
 | MCP packaging | 先做 standalone stdio JSON-RPC subset；Codex 與 Claude Code 維持 thin wrappers。 |
 | Workflow coverage | 已完成 1～6 組與 Phase 2.1～2.6 / Step 6：source policy、procedure/HITL、data layout、adapters、scenario tools、fixture pipeline 與 two-stage flow skeleton。 |
 | Fixture evidence | 12 份 synthetic de-identified cases、84 個 atomic correction items，用來驗證 schema、gates 與 HITL contract；不支撐真實案件 claim。 |
