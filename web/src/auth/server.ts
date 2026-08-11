@@ -5,6 +5,7 @@ import { drizzleAdapter } from "@better-auth/drizzle-adapter";
 import { betterAuth } from "better-auth";
 import { nextCookies } from "better-auth/next-js";
 import { anonymous } from "better-auth/plugins";
+import { isIdentityAllowed } from "@/src/auth/allowlist";
 import { parseRuntimeConfig, type RuntimeConfig } from "@/src/config/runtime";
 import { AppStore } from "@/src/db/app-store";
 import { getLocalDatabase, type LocalDatabase } from "@/src/db/local";
@@ -47,12 +48,17 @@ export function buildAuth(config: RuntimeConfig, database: LocalDatabase, secret
     databaseHooks: {
       user: {
         create: {
+          before: async (candidate) => isIdentityAllowed(config, appStore, candidate)
+        }
+      },
+      session: {
+        create: {
+          // Re-checked at sign-in too, so an account that was allowlisted when it
+          // was created cannot mint a fresh session after being revoked.
           before: async (candidate) => {
-            if (config.APP_MODE === "local" && candidate.isAnonymous) return;
-            if (config.APP_MODE === "single-user") {
-              return candidate.email.toLowerCase() === config.OWNER_EMAIL?.toLowerCase();
-            }
-            return appStore.isInvitedEmail(candidate.email);
+            const identity = await appStore.findAuthIdentity(candidate.userId);
+            if (!identity) return false;
+            return isIdentityAllowed(config, appStore, identity);
           }
         }
       }

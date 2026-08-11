@@ -29,7 +29,21 @@ RESIDUAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         re.compile(
             r"(?<![\u3400-\u9fff])"
             r"(?:王|李|張|陳|林|黃|吳|劉|蔡|楊|許|鄭|謝|洪|郭|邱|曾|廖|賴|徐|周|葉|蘇|莊|呂|江|何|蕭|羅|高|潘|簡|朱|鍾|游|彭|詹|胡|施|沈|余|盧|梁|趙|顏|柯|翁|魏|孫|戴|范|方|宋|鄧|杜|傅|侯|曹|溫|薛|丁|馬|蔣|歐陽)"
+            # A place or organization suffix right after the surname means this is
+            # a location or an authority, not a person. Without this guard every
+            # document mentioning \u6797\u53e3\u5340 or \u9ad8\u96c4\u5e02 would block model delivery.
+            r"(?![\u3400-\u9fff]?(?:\u5340|\u9109|\u93ae|\u5e02|\u7e23|\u91cc|\u6751|\u8def|\u8857|\u6bb5|\u5df7|\u5f04|\u865f|\u6a13|\u5ba4|\u68df|\u5c40|\u8655"
+            r"|\u79d1|\u8ab2|\u80a1|\u6703|\u793e|\u53f8|\u5ee0|\u5834|\u9662|\u6821|\u7f72|\u5e9c|\u6240|\u90e8|\u7d44|\u968a|\u7ad9|\u5712|\u9928|\u5bfa|\u5edf|\u6a4b|\u5c71|\u6cb3"
+            r"|\u6c5f|\u6e56|\u6d77|\u5cf6)(?![\u3400-\u9fff]))"
             r"[\u3400-\u9fff]{1,2}(?![\u3400-\u9fff])"
+        ),
+    ),
+    (
+        "birth_date_candidate",
+        re.compile(
+            r"(?:\u51fa\u751f|\u751f\u65e5|D\.?O\.?B\.?)[^\n]{0,8}?"
+            r"(?:\u4e2d\u83ef\u6c11\u570b|\u6c11\u570b)?\s*\d{1,4}\s*[./\u5e74-]\s*\d{1,2}\s*[./\u6708-]\s*\d{1,2}",
+            re.IGNORECASE,
         ),
     ),
     (

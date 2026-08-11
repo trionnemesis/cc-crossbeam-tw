@@ -65,4 +65,43 @@ describe("Better Auth local boundary", () => {
       ...timestamps
     })).resolves.toBeNull();
   });
+
+  it("refuses a new session once the owner allowlist no longer covers the account", async () => {
+    database = createMemoryDatabase();
+    const singleUser = (ownerEmail: string) =>
+      parseRuntimeConfig({
+        APP_MODE: "single-user",
+        APP_ORIGIN: "https://secure.example.com",
+        WORKER_UPLOAD_ORIGIN: "https://secure.example.com/worker",
+        LOCAL_WORKER_ORIGIN: "http://127.0.0.1:8787",
+        OWNER_EMAIL: ownerEmail,
+        GOOGLE_CLIENT_ID: "google-client",
+        GOOGLE_CLIENT_SECRET: "google-secret",
+        LINE_CHANNEL_ID: "line-channel",
+        LINE_CHANNEL_SECRET: "line-secret",
+        LINE_CHANNEL_ACCESS_TOKEN: "line-access-token",
+        BETTER_AUTH_SECRET: "x".repeat(32)
+      });
+    const timestamps = { createdAt: new Date(), updatedAt: new Date() };
+
+    const before = await buildAuth(singleUser("owner@example.test"), database, "x".repeat(48))
+      .$context;
+    const owner = await before.internalAdapter.createUser({
+      name: "Owner",
+      email: "owner@example.test",
+      emailVerified: true,
+      ...timestamps
+    });
+    expect(owner).not.toBeNull();
+    await expect(
+      before.internalAdapter.createSession(owner!.id)
+    ).resolves.not.toBeNull();
+
+    // Ownership moves to a different address; the old account still exists.
+    const after = await buildAuth(singleUser("new-owner@example.test"), database, "x".repeat(48))
+      .$context;
+    await expect(
+      after.internalAdapter.createSession(owner!.id)
+    ).resolves.toBeNull();
+  });
 });

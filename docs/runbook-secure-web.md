@@ -50,6 +50,31 @@ CODEX_WORKER_ENABLED=true
 `DATABASE_PATH`, `QUARANTINE_ROOT`, and `SANITIZED_ROOT` default to the private
 repository `.runtime` directory. That directory must be `0700`; files are `0600`.
 
+### Worker capacity
+
+The worker refuses work past these ceilings rather than queueing it without bound.
+Defaults suit the one-user pilot; raise them only with the host's CPU and memory in
+mind, because each pending job can start a Codex subprocess.
+
+```text
+WORKER_MAX_INFLIGHT_REQUESTS=16    # concurrent connections before 503
+WORKER_MAX_PROCESSING_WORKERS=2    # concurrent document analyses
+WORKER_MAX_PENDING_JOBS=8          # analyses accepted but not yet finished
+WORKER_REQUEST_TIMEOUT_SECONDS=30  # per-connection read timeout
+WORKER_MODEL_TIMEOUT_SECONDS=120   # Codex subprocess timeout
+```
+
+`WORKER_MAX_PENDING_JOBS` must be at least `WORKER_MAX_PROCESSING_WORKERS`; the worker
+refuses to start otherwise. A `503` with `Retry-After` from the upload endpoint means
+capacity was full — the upload was refused before any body was read, so nothing was
+written to quarantine and the client may retry.
+
+### Revoking access
+
+Change `OWNER_EMAIL` (or deactivate the invitation) and restart the web process. The
+allowlist is re-checked on every request, so the removed account's existing sessions are
+deleted the next time they are used; there is no separate session-purge step.
+
 ## Build and start
 
 ```sh

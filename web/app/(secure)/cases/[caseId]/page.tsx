@@ -131,6 +131,7 @@ export default async function CaseDetailPage({
             <div className="mt-6 grid gap-5 lg:grid-cols-2">
               <article className="rounded-[6px] border border-[var(--border)] bg-white p-6">
                 <h3 className="text-xl font-light text-[var(--ink)]">Audit gates</h3>
+                {analysis.confirmationProvenance ? <p className="mt-3 text-xs leading-5 text-[var(--muted)]">人工確認來源：{analysis.confirmationProvenance.confirmation === "server_approved" ? `已由 ${analysis.confirmationProvenance.approvedBy.join("、")} 確認` : "尚未經伺服器記錄的人工確認"}（run 驗證：{analysis.confirmationProvenance.status}）</p> : null}
                 <ul className="mt-5 space-y-3">
                   {analysis.gates.map((gate) => <li className="grid grid-cols-[1fr_auto] gap-3 border-t border-[var(--border)] pt-3 text-sm" key={gate.gate}><div><p className="font-medium text-[var(--ink)]">{gate.gate}</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">{gate.reason}</p></div><span className="text-xs text-[var(--success)]">{gate.status}</span></li>)}
                 </ul>

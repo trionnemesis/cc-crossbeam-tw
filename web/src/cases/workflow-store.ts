@@ -53,6 +53,11 @@ export interface AnalysisView {
   corrections: CorrectionView[];
   modelSummary: string | null;
   responseDraft: string | null;
+  confirmationProvenance: {
+    status: string;
+    confirmation: string;
+    approvedBy: string[];
+  } | null;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -86,6 +91,8 @@ function parseAnalysis(row: {
   const model = object(row.modelResultJson ? JSON.parse(row.modelResultJson) : {});
   const response = object(row.responseResultJson ? JSON.parse(row.responseResultJson) : {});
   const responseArtifacts = object(response.artifacts);
+  const responseRunMeta = object(responseArtifacts["run_meta.json"]);
+  const provenance = responseRunMeta.provenance ? object(responseRunMeta.provenance) : null;
 
   return {
     id: row.id,
@@ -124,7 +131,14 @@ function parseAnalysis(row: {
       };
     }),
     modelSummary: text(model.summary) || null,
-    responseDraft: text(responseArtifacts["response_draft.md"]) || null
+    responseDraft: text(responseArtifacts["response_draft.md"]) || null,
+    confirmationProvenance: provenance
+      ? {
+          status: text(provenance.provenance_status, "unknown"),
+          confirmation: text(provenance.human_confirmation_status, "unapproved"),
+          approvedBy: array(provenance.approved_by).map((item) => text(item)).filter(Boolean)
+        }
+      : null
   };
 }
 

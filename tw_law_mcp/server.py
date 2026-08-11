@@ -396,7 +396,11 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "apply_hitl_confirmations",
-        "description": "Apply human answers to procedure-stage and correction-item HITL questions with fail-closed validation.",
+        "description": (
+            "Apply human answers to procedure-stage and correction-item HITL questions with "
+            "fail-closed validation. approval_provenance.approval_status stays 'unapproved' "
+            "unless an authenticated approval was recorded server-side for the run."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -408,6 +412,10 @@ TOOL_SCHEMAS: list[JSON] = [
                 "answers": {
                     "type": "array",
                     "items": {"type": "object"},
+                },
+                "run_id": {
+                    "type": "string",
+                    "description": "Server-issued run id from run_tw_corrections_analysis.",
                 },
             },
             "required": ["procedure_stage_signal", "atomic_items", "answers"],
@@ -446,12 +454,20 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "run_tw_corrections_response",
-        "description": "Run stage 2 Taiwan corrections response from analysis artifacts and human answers.",
+        "description": (
+            "Run stage 2 Taiwan corrections response from analysis artifacts and human answers. "
+            "Artifacts are verified against the server-issued run digest; caller-asserted "
+            "confirmation fields are ignored and unapproved answers fail closed."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "analysis_artifacts": {"type": "object"},
                 "answers": {"type": "array", "items": {"type": "object"}},
+                "run_id": {
+                    "type": "string",
+                    "description": "Server-issued run id from run_tw_corrections_analysis.",
+                },
             },
             "required": ["analysis_artifacts"],
         },
@@ -580,17 +596,85 @@ class TwLawMcpServer:
         }
 
 
+# Local stdio transport still carries untrusted agent input, so a single message
+# must not be able to exhaust memory or CPU before it is even dispatched.
+MAX_MESSAGE_BYTES = 1 << 20
+MAX_NESTING_DEPTH = 24
+MAX_ARRAY_ITEMS = 2_000
+MAX_OBJECT_PROPERTIES = 256
+MAX_STRING_LENGTH = 200_000
+
+
+def _read_bounded_line(stream: Any, limit: int) -> tuple[bytes | None, bool]:
+    """Read one line, refusing anything past ``limit`` bytes.
+
+    Returns ``(line, oversized)``; ``(None, False)`` marks end of input. An
+    oversized line is drained to the next newline so the following message still
+    starts on a record boundary.
+    """
+    chunk = stream.readline(limit + 1)
+    if not chunk:
+        return None, False
+    if len(chunk) <= limit:
+        return chunk, False
+    while not chunk.endswith(b"\n"):
+        chunk = stream.readline(limit + 1)
+        if not chunk:
+            break
+    return None, True
+
+
+def _structure_violation(value: Any, depth: int = 0) -> str | None:
+    """Reject payloads whose shape alone would be expensive to handle."""
+    if depth > MAX_NESTING_DEPTH:
+        return "Message nesting is too deep"
+    if isinstance(value, str):
+        if len(value) > MAX_STRING_LENGTH:
+            return "Message contains an oversized string"
+        return None
+    if isinstance(value, list):
+        if len(value) > MAX_ARRAY_ITEMS:
+            return "Message contains an oversized array"
+        for item in value:
+            violation = _structure_violation(item, depth + 1)
+            if violation:
+                return violation
+        return None
+    if isinstance(value, dict):
+        if len(value) > MAX_OBJECT_PROPERTIES:
+            return "Message contains too many properties"
+        for key, item in value.items():
+            if isinstance(key, str) and len(key) > MAX_STRING_LENGTH:
+                return "Message contains an oversized property name"
+            violation = _structure_violation(item, depth + 1)
+            if violation:
+                return violation
+    return None
+
+
 def main() -> None:
     server = TwLawMcpServer()
-    for line in sys.stdin:
-        if not line.strip():
+    stream = sys.stdin.buffer
+    while True:
+        line, oversized = _read_bounded_line(stream, MAX_MESSAGE_BYTES)
+        if oversized:
+            response = server._error(None, -32600, "Message exceeds the maximum size")
+        elif line is None:
+            break
+        elif not line.strip():
             continue
-        try:
-            request = json.loads(line)
-        except json.JSONDecodeError:
-            response = server._error(None, -32700, "Parse error")
         else:
-            response = server.handle(request)
+            try:
+                request = json.loads(line.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                response = server._error(None, -32700, "Parse error")
+            else:
+                violation = _structure_violation(request)
+                if violation:
+                    request_id = request.get("id") if isinstance(request, dict) else None
+                    response = server._error(request_id, -32600, violation)
+                else:
+                    response = server.handle(request)
         if response is None:
             continue
         sys.stdout.write(json.dumps(response, ensure_ascii=False) + "\n")

@@ -3,10 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from .provenance import (
+    CONFIRMATION_APPROVED,
+    CONFIRMATION_UNAPPROVED,
+    PROVENANCE_ISSUER,
+    STATUS_VERIFIED,
+    ProvenanceLedger,
+    canonical_digest,
+)
 
 
 DATA_PATH = Path(__file__).with_name("data") / "p0_law_corpus.json"
@@ -103,6 +112,45 @@ def _effective_as_of(record: dict[str, Any], as_of_date: str | None) -> bool:
     return effective_date <= as_of_date
 
 
+# Fields the server derives from a human confirmation. A caller that sends them
+# back is asserting a decision, not reporting one, so they are dropped before the
+# server recomputes its own verdict.
+ASSERTED_CONFIRMATION_FIELDS = (
+    "confirmed_by_human",
+    "human_review_status",
+    "human_review_answer",
+    "approved_by",
+    "approval_status",
+    "provenance",
+)
+
+
+def _strip_asserted_confirmation(value: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    cleaned = {key: item for key, item in value.items() if key not in ASSERTED_CONFIRMATION_FIELDS}
+    stripped = [key for key in value if key in ASSERTED_CONFIRMATION_FIELDS]
+    if cleaned.get("adjudication") == "人工確認完成":
+        cleaned["adjudication"] = "需人工認定"
+        stripped.append("adjudication")
+    return cleaned, stripped
+
+
+def _without_asserted_confirmations(value: Any) -> tuple[Any, list[str]]:
+    if isinstance(value, dict):
+        return _strip_asserted_confirmation(value)
+    if isinstance(value, list):
+        cleaned_items = []
+        stripped: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                cleaned_item, item_stripped = _strip_asserted_confirmation(item)
+                cleaned_items.append(cleaned_item)
+                stripped.extend(item_stripped)
+            else:
+                cleaned_items.append(item)
+        return cleaned_items, stripped
+    return value, []
+
+
 def _first_marker_value(line: str, markers: tuple[str, ...]) -> str | None:
     for marker in markers:
         if marker in line:
@@ -113,6 +161,7 @@ def _first_marker_value(line: str, markers: tuple[str, ...]) -> str | None:
 @dataclass(frozen=True)
 class LawRepository:
     data: dict[str, Any]
+    provenance: ProvenanceLedger = field(default_factory=ProvenanceLedger)
 
     def list_law_packs(
         self,
@@ -1442,8 +1491,33 @@ class LawRepository:
             "client_questions.json": hitl_packet,
             "run_meta.json": audit["run_meta"],
         }
+        input_digest = canonical_digest(
+            {
+                "text": text,
+                "files": files or [],
+                "jurisdiction": jurisdiction,
+                "procedure_stage": procedure_stage,
+                "as_of_date": resolved_as_of_date,
+                "data_governance_state": data_governance_state,
+            }
+        )
+        # The run identity is minted here, before the artifacts leave the server,
+        # so every later claim about this run can be checked against it.
+        run_id = self.provenance.mint_run_id()
+        artifacts["run_meta.json"] = {
+            **audit["run_meta"],
+            "provenance": {
+                "run_id": run_id,
+                "issuer": PROVENANCE_ISSUER,
+                "input_digest": input_digest,
+            },
+        }
+        self.provenance.register_issued_run(
+            run_id=run_id, input_digest=input_digest, artifacts=artifacts
+        )
         return {
             "stage": "analysis",
+            "run_id": run_id,
             "artifacts": artifacts,
             "artifact_names": sorted(artifacts),
             "human_review_required": any(
@@ -1457,14 +1531,57 @@ class LawRepository:
         self,
         analysis_artifacts: dict[str, Any],
         answers: list[dict[str, Any]] | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
-        atomic_items = analysis_artifacts.get("atomic_correction_items.json", [])
-        stage_signal = analysis_artifacts.get("procedure_stage_signal.json", {})
+        # The artifacts arrive from the caller, so nothing in them is trusted until
+        # it is checked against what the server issued under this run id.
+        bound_run_id = run_id or self._artifact_run_id(analysis_artifacts)
+        provenance_status = self.provenance.verify_artifacts(bound_run_id, analysis_artifacts)
+        raw_items = analysis_artifacts.get("atomic_correction_items.json", [])
+        raw_stage_signal = analysis_artifacts.get("procedure_stage_signal.json", {})
+        atomic_items, stripped_items = _without_asserted_confirmations(raw_items)
+        stage_signal, stripped_stage = _without_asserted_confirmations(raw_stage_signal)
         confirmation = self.apply_hitl_confirmations(
             procedure_stage_signal=stage_signal,
             atomic_items=atomic_items,
             answers=answers or [],
+            run_id=bound_run_id,
         )
+        approvals = self.provenance.approvals_for(bound_run_id)
+        answered_keys = {
+            str(answer.get("question_key"))
+            for answer in (answers or [])
+            if answer.get("question_key") is not None
+        }
+        unapproved_keys = sorted(answered_keys - set(approvals))
+        human_confirmation_status = (
+            CONFIRMATION_APPROVED
+            if answered_keys
+            and not unapproved_keys
+            and provenance_status == STATUS_VERIFIED
+            else CONFIRMATION_UNAPPROVED
+        )
+        # Evidence fails closed: an answer nobody authenticated is not a confirmation,
+        # however plausible the caller made it look.
+        evidence_confirmation_status = (
+            confirmation["confirmation_status"]
+            if human_confirmation_status == CONFIRMATION_APPROVED
+            else CONFIRMATION_UNAPPROVED
+        )
+        evidence_human_review_required = (
+            confirmation["human_review_required"]
+            or human_confirmation_status != CONFIRMATION_APPROVED
+        )
+        provenance_block = {
+            "run_id": bound_run_id,
+            "issuer": PROVENANCE_ISSUER,
+            "provenance_status": provenance_status,
+            "human_confirmation_status": human_confirmation_status,
+            "approved_by": sorted({record.approved_by for record in approvals.values()}),
+            "approved_question_keys": sorted(approvals),
+            "unapproved_question_keys": unapproved_keys,
+            "ignored_caller_asserted_fields": sorted(set(stripped_items) | set(stripped_stage)),
+        }
         lines = [
             "# 補正回覆草稿",
             "",
@@ -1503,16 +1620,82 @@ class LawRepository:
             "professional_review_packet.md": "\n".join(review_lines),
             "correction_summary.md": "\n".join(summary_lines),
             "run_meta.json": {
-                "confirmation_status": confirmation["confirmation_status"],
-                "human_review_required": confirmation["human_review_required"],
+                "confirmation_status": evidence_confirmation_status,
+                "computed_confirmation_status": confirmation["confirmation_status"],
+                "human_review_required": evidence_human_review_required,
                 "prohibited_claim_linter": self._draft_has_no_forbidden_claims(lines),
+                "provenance": provenance_block,
             },
         }
         return {
             "stage": "response",
+            "run_id": bound_run_id,
             "artifacts": artifacts,
             "artifact_names": sorted(artifacts),
-            "human_review_required": confirmation["human_review_required"],
+            "human_review_required": evidence_human_review_required,
+        }
+
+    @staticmethod
+    def _artifact_run_id(analysis_artifacts: dict[str, Any]) -> str | None:
+        """Read the run id the caller returned.
+
+        Only a lookup key: a forged value either misses the ledger or fails the
+        digest comparison, so it can never upgrade a run's provenance status.
+        """
+        run_meta = analysis_artifacts.get("run_meta.json")
+        if not isinstance(run_meta, dict):
+            return None
+        provenance = run_meta.get("provenance")
+        if not isinstance(provenance, dict):
+            return None
+        run_id = provenance.get("run_id")
+        return run_id if isinstance(run_id, str) and run_id else None
+
+    def restore_analysis_run(self, analysis_artifacts: dict[str, Any]) -> str | None:
+        """Re-register a run held in a trusted private store.
+
+        The secure worker persists the server's own analysis artifacts in its private
+        database and later needs the same run identity to attach approvals to. Not an
+        MCP tool: a remote caller replaying artifacts back at the server proves nothing.
+        """
+        run_id = self._artifact_run_id(analysis_artifacts)
+        if not run_id:
+            return None
+        run_meta = analysis_artifacts.get("run_meta.json", {})
+        input_digest = str(run_meta.get("provenance", {}).get("input_digest", ""))
+        self.provenance.restore_run(
+            run_id=run_id, input_digest=input_digest, artifacts=analysis_artifacts
+        )
+        return run_id
+
+    def record_hitl_approval(
+        self,
+        *,
+        run_id: str,
+        question_key: str,
+        approved_by: str,
+        answer: Any,
+        analysis_artifacts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Record one authenticated human decision against a run.
+
+        ``approved_by`` must be an identity the caller already authenticated; this
+        records it against the run and the artifact digest, it does not verify it.
+        """
+        record = self.provenance.record_approval(
+            run_id=run_id,
+            question_key=question_key,
+            approved_by=approved_by,
+            answer=answer,
+            artifacts=analysis_artifacts,
+        )
+        return {
+            "run_id": record.run_id,
+            "question_key": record.question_key,
+            "approved_by": record.approved_by,
+            "answer_digest": record.answer_digest,
+            "artifact_digest": record.artifact_digest,
+            "approved_at": record.approved_at,
         }
 
     def run_two_stage_flow_acceptance(self) -> dict[str, Any]:
@@ -2282,6 +2465,7 @@ class LawRepository:
         procedure_stage_signal: dict[str, Any],
         atomic_items: list[dict[str, Any]],
         answers: list[dict[str, Any]],
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         packet = self.build_hitl_confirmation_packet(
             procedure_stage_signal=procedure_stage_signal,
@@ -2343,11 +2527,28 @@ class LawRepository:
         human_review_required = bool(unanswered_questions or unknown_answers or invalid_answers)
         if human_review_required and questions.get("confirm_procedure_stage"):
             finalized_stage["human_review_required"] = True
+        approvals = self.provenance.approvals_for(run_id)
+        approved_keys = sorted(set(answer_map) & set(approvals))
+        # What the answers imply is one thing; whether an authenticated human stands
+        # behind them is another, and only the second counts as audit evidence.
+        approval_status = (
+            CONFIRMATION_APPROVED
+            if answer_map and set(answer_map).issubset(approvals)
+            else CONFIRMATION_UNAPPROVED
+        )
         return {
             "procedure_stage_signal": finalized_stage,
             "atomic_correction_items": finalized_items,
             "confirmation_status": "complete" if not human_review_required else "incomplete",
             "human_review_required": human_review_required,
+            "approval_provenance": {
+                "run_id": run_id,
+                "issuer": PROVENANCE_ISSUER,
+                "approval_status": approval_status,
+                "approved_question_keys": approved_keys,
+                "unapproved_question_keys": sorted(set(answer_map) - set(approvals)),
+                "approved_by": sorted({approvals[key].approved_by for key in approved_keys}),
+            },
             "unanswered_questions": unanswered_questions,
             "unknown_answers": unknown_answers,
             "invalid_answers": invalid_answers,
