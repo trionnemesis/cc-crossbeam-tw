@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
+
+from .provenance import (
+    CONFIRMATION_APPROVED,
+    CONFIRMATION_NOT_REQUIRED,
+    CONFIRMATION_UNAPPROVED,
+    PROVENANCE_ISSUER,
+    STATUS_VERIFIED,
+    ProvenanceLedger,
+    approved_answer_keys,
+    canonical_digest,
+)
 
 
 DATA_PATH = Path(__file__).with_name("data") / "p0_law_corpus.json"
@@ -103,6 +115,67 @@ def _effective_as_of(record: dict[str, Any], as_of_date: str | None) -> bool:
     return effective_date <= as_of_date
 
 
+# Fields the server derives from a human confirmation. A caller that sends them
+# back is asserting a decision, not reporting one, so they are dropped before the
+# server recomputes its own verdict.
+ASSERTED_CONFIRMATION_FIELDS = (
+    "confirmed_by_human",
+    "human_review_status",
+    "human_review_answer",
+    "approved_by",
+    "approval_status",
+    "provenance",
+)
+
+
+def _strip_asserted_confirmation(value: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    cleaned = {key: item for key, item in value.items() if key not in ASSERTED_CONFIRMATION_FIELDS}
+    stripped = [key for key in value if key in ASSERTED_CONFIRMATION_FIELDS]
+    if cleaned.get("adjudication") == "人工確認完成":
+        cleaned["adjudication"] = "需人工認定"
+        stripped.append("adjudication")
+    return cleaned, stripped
+
+
+def _without_asserted_confirmations(value: Any) -> tuple[Any, list[str]]:
+    if isinstance(value, dict):
+        return _strip_asserted_confirmation(value)
+    if isinstance(value, list):
+        cleaned_items = []
+        stripped: list[str] = []
+        for item in value:
+            if isinstance(item, dict):
+                cleaned_item, item_stripped = _strip_asserted_confirmation(item)
+                cleaned_items.append(cleaned_item)
+                stripped.extend(item_stripped)
+            else:
+                cleaned_items.append(item)
+        return cleaned_items, stripped
+    return value, []
+
+
+PENDING_CITATION_STATUS = "pending_source_verification"
+
+_ARTICLE_REFERENCE = re.compile(r"^(?P<law_name>.+?)第(?P<article>[0-9]+(?:-[0-9]+)?)條$")
+
+
+def _parse_article_reference(source_title: str) -> dict[str, str] | None:
+    """Split a pack's `source_title` such as 消防法第6條 into law name and article."""
+    match = _ARTICLE_REFERENCE.match(source_title.strip())
+    if not match:
+        return None
+    return {"law_name": match.group("law_name"), "article": match.group("article")}
+
+
+def _verification_status(article: dict[str, Any]) -> str:
+    """Articles predating the field are the ones that shipped with verified text."""
+    return str(article.get("verification_status", "snapshot_verified"))
+
+
+def _is_snapshot_verified(article: dict[str, Any]) -> bool:
+    return _verification_status(article) == "snapshot_verified" and bool(article.get("text"))
+
+
 def _first_marker_value(line: str, markers: tuple[str, ...]) -> str | None:
     for marker in markers:
         if marker in line:
@@ -113,6 +186,7 @@ def _first_marker_value(line: str, markers: tuple[str, ...]) -> str | None:
 @dataclass(frozen=True)
 class LawRepository:
     data: dict[str, Any]
+    provenance: ProvenanceLedger = field(default_factory=ProvenanceLedger)
 
     def list_law_packs(
         self,
@@ -201,7 +275,9 @@ class LawRepository:
                 continue
             if not _effective_as_of(article, as_of_date):
                 continue
-            article_text = article["text"].lower()
+            # Pending articles have no snapshot to search; they can still be reached by
+            # law name so a reviewer can find the lead.
+            article_text = (article.get("text") or "").lower()
             article_name = article["law_name"].lower()
             score = sum(
                 article_text.count(term) + article_name.count(term)
@@ -249,7 +325,10 @@ class LawRepository:
         as_of_date: str | None,
     ) -> dict[str, Any]:
         public = dict(article)
-        public["checksum"] = _checksum(article["text"])
+        # A pending article has no text to checksum; emitting a checksum over "" would
+        # look like a verified snapshot of an empty law.
+        public["checksum"] = _checksum(article["text"]) if article.get("text") else None
+        public["verification_status"] = _verification_status(article)
         public["as_of_date"] = as_of_date
         if score is not None:
             public["score"] = score
@@ -298,19 +377,32 @@ class LawRepository:
                 effective_matches = (
                     effective_date is None or effective_date == article["effective_date"]
                 )
+                # A referenced-but-unsnapshotted article is a lead for a reviewer, not a
+                # citation. Reporting exists=True here would let the citation gate pass on
+                # text nobody has verified.
+                verified = _is_snapshot_verified(article)
                 return {
-                    "exists": True,
+                    "exists": verified,
+                    "verification_status": _verification_status(article),
                     "canonical_name": article["law_name"],
+                    "source_url": article.get("source_url"),
                     "version": {
                         "effective_date": article["effective_date"],
                         "amendment_date": article["amendment_date"],
                     },
                     "rank": article["source_authority_rank"],
-                    "diff": "match" if effective_matches else "effective_date_mismatch",
+                    "diff": (
+                        ("match" if effective_matches else "effective_date_mismatch")
+                        if verified
+                        else "pending_source_verification"
+                    ),
+                    **({} if verified else {"verification_note": article.get("verification_note")}),
                 }
         return {
             "exists": False,
+            "verification_status": "not_in_corpus",
             "canonical_name": None,
+            "source_url": None,
             "version": None,
             "rank": None,
             "diff": "not_found",
@@ -497,10 +589,26 @@ class LawRepository:
             "license_evidence",
         }
         incomplete_policies = []
+        pending_sources = []
         for source_url, policy in policies.items():
-            missing = sorted(field for field in required_policy_fields if not policy.get(field))
+            # A source awaiting its snapshot has no verified_at yet. That is a complete
+            # declaration as long as it says why; it is tracked separately below so the
+            # unverified state stays visible instead of passing quietly.
+            pending = not policy.get("verified_at") and bool(policy.get("pending_reason"))
+            expected_fields = (
+                required_policy_fields - {"verified_at"} if pending else required_policy_fields
+            )
+            missing = sorted(field for field in expected_fields if not policy.get(field))
             if missing:
                 incomplete_policies.append({"source_url": source_url, "missing": missing})
+            if pending:
+                pending_sources.append(
+                    {
+                        "source_url": source_url,
+                        "verified_law_name": policy.get("verified_law_name"),
+                        "pending_reason": policy.get("pending_reason"),
+                    }
+                )
         if incomplete_policies:
             failures.append(
                 {
@@ -546,8 +654,111 @@ class LawRepository:
             "source_class_count": len(article_classes),
             "comparison_count": len(comparisons),
             "covered_source_classes": sorted(covered_classes),
+            # Policy evidence being complete is not the same as the source being
+            # verified. Both are reported so a pending snapshot cannot pass quietly.
+            "verified_source_count": len(policies) - len(pending_sources),
+            "pending_source_count": len(pending_sources),
+            "pending_sources": sorted(pending_sources, key=lambda item: item["source_url"]),
+            "all_sources_verified": not pending_sources,
             "all_passed": not failures,
             "failures": failures,
+        }
+
+    def run_source_coverage_acceptance(self) -> dict[str, Any]:
+        """Check the corpus against what the source packs promise.
+
+        The packs advertised 消防法 and 建築技術規則 articles that the corpus never
+        held, so every correction item touching fire or compartment wording resolved to
+        nothing. This gate makes that class of drift fail loudly instead of silently
+        degrading every citation.
+        """
+        failures = []
+        articles = self.data["articles"]
+        corpus_keys = {(article["law_name"], article["article"]) for article in articles}
+
+        referenced = []
+        for pack in self._load_source_packs():
+            for unit in pack.get("source_units", []):
+                if unit.get("source_type") != "article":
+                    continue
+                parsed = _parse_article_reference(unit.get("source_title", ""))
+                if parsed is None:
+                    failures.append(
+                        {
+                            "gate": "article_reference_parseable",
+                            "reason": "source_title_is_not_an_article_reference",
+                            "details": {
+                                "pack_id": pack.get("pack_id"),
+                                "source_id": unit.get("source_id"),
+                                "source_title": unit.get("source_title"),
+                            },
+                        }
+                    )
+                    continue
+                referenced.append(
+                    {"pack_id": pack.get("pack_id"), "source_id": unit.get("source_id"), **parsed}
+                )
+
+        missing = [
+            item for item in referenced if (item["law_name"], item["article"]) not in corpus_keys
+        ]
+        if missing:
+            failures.append(
+                {
+                    "gate": "pack_articles_present_in_corpus",
+                    "reason": "source_pack_references_article_missing_from_corpus",
+                    "details": missing,
+                }
+            )
+
+        policy_urls = {policy["source_url"] for policy in self.data["source_policies"]}
+        orphan_articles = sorted(
+            {
+                f"{article['law_name']}第{article['article']}條"
+                for article in articles
+                if article["source_url"] not in policy_urls
+            }
+        )
+        if orphan_articles:
+            failures.append(
+                {
+                    "gate": "articles_have_source_policy",
+                    "reason": "article_source_url_has_no_source_policy",
+                    "details": orphan_articles,
+                }
+            )
+
+        # A pending article carrying text would be an unverified snapshot masquerading
+        # as a verified one.
+        mislabelled = sorted(
+            {
+                f"{article['law_name']}第{article['article']}條"
+                for article in articles
+                if _verification_status(article) == "pending_snapshot" and article.get("text")
+            }
+        )
+        if mislabelled:
+            failures.append(
+                {
+                    "gate": "pending_articles_carry_no_text",
+                    "reason": "pending_article_has_unverified_text",
+                    "details": mislabelled,
+                }
+            )
+
+        verified = [article for article in articles if _is_snapshot_verified(article)]
+        return {
+            "all_passed": not failures,
+            "failures": failures,
+            "article_count": len(articles),
+            "verified_article_count": len(verified),
+            "pending_article_count": len(articles) - len(verified),
+            "referenced_article_count": len(referenced),
+            "pending_articles": sorted(
+                f"{article['law_name']}第{article['article']}條"
+                for article in articles
+                if not _is_snapshot_verified(article)
+            ),
         }
 
     def list_jurisdictions(self, include_disabled: bool = False) -> list[dict[str, Any]]:
@@ -708,6 +919,7 @@ class LawRepository:
 
     def run_phase_acceptance(self) -> dict[str, Any]:
         source_policy = self.run_source_policy_acceptance()
+        source_coverage = self.run_source_coverage_acceptance()
         fixture_pipeline = self.run_fixture_pipeline_acceptance()
         jurisdiction_registry = self.run_jurisdiction_registry_acceptance()
         packaging = self.run_packaging_acceptance()
@@ -719,6 +931,7 @@ class LawRepository:
         metadata_extraction = self._run_metadata_extraction_acceptance()
         gates = {
             "p0_source_policy": source_policy["all_passed"],
+            "source_coverage": source_coverage["all_passed"],
             "procedure_stage_hitl": procedure_hitl["all_passed"],
             "g2_fixture_baseline": fixture_pipeline["all_cases_passed"],
             "metadata_extraction": metadata_extraction["all_passed"],
@@ -734,6 +947,7 @@ class LawRepository:
             "gates": gates,
             "details": {
                 "p0_source_policy": source_policy,
+                "source_coverage": source_coverage,
                 "procedure_stage_hitl": procedure_hitl,
                 "g2_fixture_baseline": {
                     "fixture_set_id": fixture_pipeline["fixture_set_id"],
@@ -1442,8 +1656,33 @@ class LawRepository:
             "client_questions.json": hitl_packet,
             "run_meta.json": audit["run_meta"],
         }
+        input_digest = canonical_digest(
+            {
+                "text": text,
+                "files": files or [],
+                "jurisdiction": jurisdiction,
+                "procedure_stage": procedure_stage,
+                "as_of_date": resolved_as_of_date,
+                "data_governance_state": data_governance_state,
+            }
+        )
+        # The run identity is minted here, before the artifacts leave the server,
+        # so every later claim about this run can be checked against it.
+        run_id = self.provenance.mint_run_id()
+        artifacts["run_meta.json"] = {
+            **audit["run_meta"],
+            "provenance": {
+                "run_id": run_id,
+                "issuer": PROVENANCE_ISSUER,
+                "input_digest": input_digest,
+            },
+        }
+        self.provenance.register_issued_run(
+            run_id=run_id, input_digest=input_digest, artifacts=artifacts
+        )
         return {
             "stage": "analysis",
+            "run_id": run_id,
             "artifacts": artifacts,
             "artifact_names": sorted(artifacts),
             "human_review_required": any(
@@ -1457,14 +1696,74 @@ class LawRepository:
         self,
         analysis_artifacts: dict[str, Any],
         answers: list[dict[str, Any]] | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any]:
-        atomic_items = analysis_artifacts.get("atomic_correction_items.json", [])
-        stage_signal = analysis_artifacts.get("procedure_stage_signal.json", {})
+        # The artifacts arrive from the caller, so nothing in them is trusted until
+        # it is checked against what the server issued under this run id.
+        bound_run_id = run_id or self._artifact_run_id(analysis_artifacts)
+        provenance_status = self.provenance.verify_artifacts(bound_run_id, analysis_artifacts)
+        raw_items = analysis_artifacts.get("atomic_correction_items.json", [])
+        raw_stage_signal = analysis_artifacts.get("procedure_stage_signal.json", {})
+        atomic_items, stripped_items = _without_asserted_confirmations(raw_items)
+        stage_signal, stripped_stage = _without_asserted_confirmations(raw_stage_signal)
         confirmation = self.apply_hitl_confirmations(
             procedure_stage_signal=stage_signal,
             atomic_items=atomic_items,
             answers=answers or [],
+            run_id=bound_run_id,
         )
+        approvals = self.provenance.approvals_for(bound_run_id)
+        answer_map = {
+            str(answer.get("question_key")): answer
+            for answer in (answers or [])
+            if answer.get("question_key") is not None
+        }
+        # Matching the digest, not just the key: an approval covers the decision that
+        # was approved, so an answer edited afterwards is no longer covered by it.
+        approved_keys = approved_answer_keys(approvals, answer_map)
+        unapproved_keys = sorted(set(answer_map) - approved_keys)
+        required_keys = set(confirmation["approval_provenance"]["required_question_keys"])
+
+        if provenance_status != STATUS_VERIFIED:
+            # The question set itself comes from the artifacts, so an unverified run
+            # cannot establish that there was nothing to confirm.
+            human_confirmation_status = CONFIRMATION_UNAPPROVED
+        elif not required_keys and not answer_map:
+            # Nothing was ever asked. Forcing review here would flag every such run and
+            # drain the signal from human_review_required.
+            human_confirmation_status = CONFIRMATION_NOT_REQUIRED
+        elif answer_map and not unapproved_keys and not (required_keys - set(answer_map)):
+            human_confirmation_status = CONFIRMATION_APPROVED
+        else:
+            human_confirmation_status = CONFIRMATION_UNAPPROVED
+
+        # Evidence fails closed: an answer nobody authenticated is not a confirmation,
+        # however plausible the caller made it look.
+        confirmation_settled = human_confirmation_status in {
+            CONFIRMATION_APPROVED,
+            CONFIRMATION_NOT_REQUIRED,
+        }
+        evidence_confirmation_status = (
+            confirmation["confirmation_status"]
+            if confirmation_settled
+            else CONFIRMATION_UNAPPROVED
+        )
+        evidence_human_review_required = (
+            confirmation["human_review_required"] or not confirmation_settled
+        )
+        provenance_block = {
+            "run_id": bound_run_id,
+            "issuer": PROVENANCE_ISSUER,
+            "provenance_status": provenance_status,
+            "human_confirmation_status": human_confirmation_status,
+            "approved_by": sorted(
+                {approvals[key].approved_by for key in approved_keys}
+            ),
+            "required_question_keys": sorted(required_keys),
+            "approved_question_keys": sorted(approved_keys),
+            "unapproved_question_keys": unapproved_keys,
+            "ignored_caller_asserted_fields": sorted(set(stripped_items) | set(stripped_stage)),
+        }
         lines = [
             "# 補正回覆草稿",
             "",
@@ -1503,16 +1802,82 @@ class LawRepository:
             "professional_review_packet.md": "\n".join(review_lines),
             "correction_summary.md": "\n".join(summary_lines),
             "run_meta.json": {
-                "confirmation_status": confirmation["confirmation_status"],
-                "human_review_required": confirmation["human_review_required"],
+                "confirmation_status": evidence_confirmation_status,
+                "computed_confirmation_status": confirmation["confirmation_status"],
+                "human_review_required": evidence_human_review_required,
                 "prohibited_claim_linter": self._draft_has_no_forbidden_claims(lines),
+                "provenance": provenance_block,
             },
         }
         return {
             "stage": "response",
+            "run_id": bound_run_id,
             "artifacts": artifacts,
             "artifact_names": sorted(artifacts),
-            "human_review_required": confirmation["human_review_required"],
+            "human_review_required": evidence_human_review_required,
+        }
+
+    @staticmethod
+    def _artifact_run_id(analysis_artifacts: dict[str, Any]) -> str | None:
+        """Read the run id the caller returned.
+
+        Only a lookup key: a forged value either misses the ledger or fails the
+        digest comparison, so it can never upgrade a run's provenance status.
+        """
+        run_meta = analysis_artifacts.get("run_meta.json")
+        if not isinstance(run_meta, dict):
+            return None
+        provenance = run_meta.get("provenance")
+        if not isinstance(provenance, dict):
+            return None
+        run_id = provenance.get("run_id")
+        return run_id if isinstance(run_id, str) and run_id else None
+
+    def restore_analysis_run(self, analysis_artifacts: dict[str, Any]) -> str | None:
+        """Re-register a run held in a trusted private store.
+
+        The secure worker persists the server's own analysis artifacts in its private
+        database and later needs the same run identity to attach approvals to. Not an
+        MCP tool: a remote caller replaying artifacts back at the server proves nothing.
+        """
+        run_id = self._artifact_run_id(analysis_artifacts)
+        if not run_id:
+            return None
+        run_meta = analysis_artifacts.get("run_meta.json", {})
+        input_digest = str(run_meta.get("provenance", {}).get("input_digest", ""))
+        self.provenance.restore_run(
+            run_id=run_id, input_digest=input_digest, artifacts=analysis_artifacts
+        )
+        return run_id
+
+    def record_hitl_approval(
+        self,
+        *,
+        run_id: str,
+        question_key: str,
+        approved_by: str,
+        answer: Any,
+        analysis_artifacts: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Record one authenticated human decision against a run.
+
+        ``approved_by`` must be an identity the caller already authenticated; this
+        records it against the run and the artifact digest, it does not verify it.
+        """
+        record = self.provenance.record_approval(
+            run_id=run_id,
+            question_key=question_key,
+            approved_by=approved_by,
+            answer=answer,
+            artifacts=analysis_artifacts,
+        )
+        return {
+            "run_id": record.run_id,
+            "question_key": record.question_key,
+            "approved_by": record.approved_by,
+            "answer_digest": record.answer_digest,
+            "artifact_digest": record.artifact_digest,
+            "approved_at": record.approved_at,
         }
 
     def run_two_stage_flow_acceptance(self) -> dict[str, Any]:
@@ -1903,6 +2268,24 @@ class LawRepository:
             gate_item["human_review_required"] = True
             return gate_item
 
+        if not _is_snapshot_verified(article_meta):
+            # The corpus knows which law this is but not what it currently says, so the
+            # item carries a lead and a source link and still goes to a human.
+            gate_item["source_authority_rank"] = article_meta.get("source_authority_rank", 5)
+            gate_item["source_license_status"] = article_meta.get(
+                "source_license_status", "unknown"
+            )
+            gate_item["citation_status"] = PENDING_CITATION_STATUS
+            gate_item["source_url"] = article_meta.get("source_url")
+            gate_item["claim_supported"] = False
+            gate_item["claim_support_confidence"] = 0.0
+            gate_item["claim_support_rationale"] = (
+                f"候選法源為{article_meta.get('law_name')}第{article_meta.get('article')}條，"
+                "但條文尚未完成快照驗證，需人工核對來源後認定。"
+            )
+            gate_item["human_review_required"] = True
+            return gate_item
+
         gate_item["source_authority_rank"] = article_meta.get("source_authority_rank", 5)
         gate_item["source_license_status"] = article_meta.get(
             "source_license_status",
@@ -2157,7 +2540,14 @@ class LawRepository:
                 )
                 resolved_law_name = inferred.get("law_name") if inferred else law_name
                 resolved_article = inferred.get("article") if inferred else article
-                citation_status = "verified" if inferred else "unresolved"
+                if not inferred:
+                    citation_status = "unresolved"
+                elif _is_snapshot_verified(inferred):
+                    citation_status = "verified"
+                else:
+                    # Named the likely law but its text is unverified: give the reviewer
+                    # the candidate and the source link, without claiming a citation.
+                    citation_status = PENDING_CITATION_STATUS
                 source_authority_rank = inferred.get("source_authority_rank", 5)
                 source_license_status = inferred.get("source_license_status", "unknown")
                 item_index = len(items) + 1
@@ -2169,6 +2559,7 @@ class LawRepository:
                         "law_name": resolved_law_name,
                         "article": resolved_article,
                         "citation_status": citation_status,
+                        "source_url": inferred.get("source_url") if inferred else None,
                         "source_authority_rank": source_authority_rank,
                         "source_license_status": source_license_status,
                         "claim_supported": False,
@@ -2206,14 +2597,41 @@ class LawRepository:
                 "3",
                 ("圖說審核", "竣工查驗", "變更使用", "簡易室內裝修"),
             ),
+            # Fire and compartment markers resolve to articles that are still
+            # pending_snapshot, so they surface a candidate law and a source link
+            # for the reviewer rather than a citation.
+            (
+                "消防法",
+                "6",
+                ("消防安全設備", "滅火設備", "警報設備", "避難逃生設備", "消防檢修"),
+            ),
+            (
+                "建築技術規則建築設計施工編",
+                "79",
+                ("防火區劃", "防火牆", "防火門", "防火樓板"),
+            ),
+            (
+                "建築技術規則建築設計施工編",
+                "85-1",
+                ("防火填塞", "貫穿", "管道間", "風管"),
+            ),
         )
         candidates = []
         for candidate_law, candidate_article, markers in marker_groups:
-            if any(marker in text for marker in markers):
-                article_meta = self._find_article(candidate_law, candidate_article)
-                if article_meta:
-                    candidates.append(article_meta)
-        return candidates[0] if len(candidates) == 1 else {}
+            hits = sum(1 for marker in markers if marker in text)
+            if not hits:
+                continue
+            article_meta = self._find_article(candidate_law, candidate_article)
+            if article_meta:
+                candidates.append((hits, article_meta))
+        if not candidates:
+            return {}
+        # Prefer the most specific match: 「風管貫穿防火區劃處補防火填塞」 hits three
+        # markers of the penetration article and one of the compartment article. A real
+        # tie is still genuine ambiguity and stays unresolved for human review.
+        best = max(hits for hits, _ in candidates)
+        leaders = [meta for hits, meta in candidates if hits == best]
+        return leaders[0] if len(leaders) == 1 else {}
 
     def build_sheet_manifest(self, files: list[dict[str, Any]]) -> dict[str, Any]:
         metadata = self.extract_file_metadata(files)["files"]
@@ -2282,6 +2700,7 @@ class LawRepository:
         procedure_stage_signal: dict[str, Any],
         atomic_items: list[dict[str, Any]],
         answers: list[dict[str, Any]],
+        run_id: str | None = None,
     ) -> dict[str, Any]:
         packet = self.build_hitl_confirmation_packet(
             procedure_stage_signal=procedure_stage_signal,
@@ -2343,11 +2762,29 @@ class LawRepository:
         human_review_required = bool(unanswered_questions or unknown_answers or invalid_answers)
         if human_review_required and questions.get("confirm_procedure_stage"):
             finalized_stage["human_review_required"] = True
+        approvals = self.provenance.approvals_for(run_id)
+        approved_keys = sorted(approved_answer_keys(approvals, answer_map))
+        # What the answers imply is one thing; whether an authenticated human stands
+        # behind these exact answers is another, and only the second is audit evidence.
+        approval_status = (
+            CONFIRMATION_APPROVED
+            if answer_map and len(approved_keys) == len(answer_map)
+            else CONFIRMATION_UNAPPROVED
+        )
         return {
             "procedure_stage_signal": finalized_stage,
             "atomic_correction_items": finalized_items,
             "confirmation_status": "complete" if not human_review_required else "incomplete",
             "human_review_required": human_review_required,
+            "approval_provenance": {
+                "run_id": run_id,
+                "issuer": PROVENANCE_ISSUER,
+                "approval_status": approval_status,
+                "required_question_keys": sorted(questions),
+                "approved_question_keys": approved_keys,
+                "unapproved_question_keys": sorted(set(answer_map) - set(approved_keys)),
+                "approved_by": sorted({approvals[key].approved_by for key in approved_keys}),
+            },
             "unanswered_questions": unanswered_questions,
             "unknown_answers": unknown_answers,
             "invalid_answers": invalid_answers,
@@ -2518,7 +2955,7 @@ class LawRepository:
         for idx, item in enumerate(correction_items):
             law_name = item.get("law_name")
             article = item.get("article")
-            if item.get("citation_status") == "unresolved":
+            if item.get("citation_status") in {"unresolved", PENDING_CITATION_STATUS}:
                 failing.append(idx)
                 continue
             if not isinstance(law_name, str) or not isinstance(article, str):

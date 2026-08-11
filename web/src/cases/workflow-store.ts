@@ -39,6 +39,8 @@ export interface CorrectionView {
   lawName: string;
   article: string;
   humanReviewRequired: boolean;
+  citationStatus: string;
+  sourceUrl: string | null;
 }
 
 export interface AnalysisView {
@@ -53,6 +55,11 @@ export interface AnalysisView {
   corrections: CorrectionView[];
   modelSummary: string | null;
   responseDraft: string | null;
+  confirmationProvenance: {
+    status: string;
+    confirmation: string;
+    approvedBy: string[];
+  } | null;
 }
 
 function object(value: unknown): Record<string, unknown> {
@@ -86,6 +93,8 @@ function parseAnalysis(row: {
   const model = object(row.modelResultJson ? JSON.parse(row.modelResultJson) : {});
   const response = object(row.responseResultJson ? JSON.parse(row.responseResultJson) : {});
   const responseArtifacts = object(response.artifacts);
+  const responseRunMeta = object(responseArtifacts["run_meta.json"]);
+  const provenance = responseRunMeta.provenance ? object(responseRunMeta.provenance) : null;
 
   return {
     id: row.id,
@@ -120,11 +129,20 @@ function parseAnalysis(row: {
         text: text(correction.text, text(correction.source_span, "需人工確認")),
         lawName: text(correction.law_name, "法源待確認"),
         article: text(correction.article, "—"),
-        humanReviewRequired: Boolean(correction.human_review_required)
+        humanReviewRequired: Boolean(correction.human_review_required),
+        citationStatus: text(correction.citation_status, "unresolved"),
+        sourceUrl: text(correction.source_url) || null
       };
     }),
     modelSummary: text(model.summary) || null,
-    responseDraft: text(responseArtifacts["response_draft.md"]) || null
+    responseDraft: text(responseArtifacts["response_draft.md"]) || null,
+    confirmationProvenance: provenance
+      ? {
+          status: text(provenance.provenance_status, "unknown"),
+          confirmation: text(provenance.human_confirmation_status, "unapproved"),
+          approvedBy: array(provenance.approved_by).map((item) => text(item)).filter(Boolean)
+        }
+      : null
   };
 }
 

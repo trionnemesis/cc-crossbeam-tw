@@ -1,6 +1,16 @@
+import copy
 import unittest
 
-from tw_law_mcp.repository import load_default_repository
+from tw_law_mcp.provenance import (
+    CONFIRMATION_APPROVED,
+    CONFIRMATION_NOT_REQUIRED,
+    CONFIRMATION_UNAPPROVED,
+    PROVENANCE_ISSUER,
+    STATUS_ARTIFACTS_MODIFIED,
+    STATUS_UNKNOWN_RUN,
+    STATUS_VERIFIED,
+)
+from tw_law_mcp.repository import LawRepository, load_default_repository
 
 
 class LawRepositoryTests(unittest.TestCase):
@@ -124,10 +134,24 @@ class LawRepositoryTests(unittest.TestCase):
 
         self.assertTrue(acceptance["all_passed"])
         self.assertEqual(acceptance["failures"], [])
-        self.assertEqual(acceptance["article_source_count"], 3)
+        self.assertEqual(acceptance["article_source_count"], 5)
         self.assertEqual(acceptance["source_class_count"], 2)
         self.assertEqual(acceptance["comparison_count"], 1)
         self.assertEqual(len(acceptance["covered_source_classes"]), 2)
+
+    def test_pending_sources_are_reported_rather_than_passing_quietly(self):
+        acceptance = self.repo.run_source_policy_acceptance()
+
+        # Declaring the evidence completely is not the same as having verified it.
+        self.assertTrue(acceptance["all_passed"])
+        self.assertFalse(acceptance["all_sources_verified"])
+        self.assertEqual(acceptance["pending_source_count"], 2)
+        self.assertEqual(
+            {item["verified_law_name"] for item in acceptance["pending_sources"]},
+            {"消防法", "建築技術規則建築設計施工編"},
+        )
+        for item in acceptance["pending_sources"]:
+            self.assertTrue(item["pending_reason"])
 
     def test_list_jurisdictions_keeps_disabled_stubs_fail_closed(self):
         enabled = self.repo.list_jurisdictions()
@@ -174,6 +198,7 @@ class LawRepositoryTests(unittest.TestCase):
                 "scenario_matrix",
                 "split_data_layout",
                 "source_adapters",
+                "source_coverage",
                 "two_stage_flow",
             }.issubset(set(acceptance["gates"]))
         )
@@ -827,6 +852,355 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertEqual(gate_status["claim_supported"], "failed")
         self.assertEqual(gate_status["red_line_linter"], "failed")
         self.assertEqual(gate_status["data_governance"], "failed")
+
+
+class SourceCoverageTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = load_default_repository()
+
+    def _repo_without(self, law_name):
+        data = copy.deepcopy(self.repo.data)
+        data["articles"] = [a for a in data["articles"] if a["law_name"] != law_name]
+        return LawRepository(data)
+
+    def test_corpus_covers_every_article_the_source_packs_reference(self):
+        coverage = self.repo.run_source_coverage_acceptance()
+
+        self.assertTrue(coverage["all_passed"])
+        self.assertEqual(coverage["failures"], [])
+        self.assertEqual(coverage["referenced_article_count"], 5)
+        self.assertEqual(coverage["verified_article_count"], 3)
+        self.assertEqual(coverage["pending_article_count"], 3)
+
+    def test_an_article_a_pack_references_but_the_corpus_lacks_fails_the_gate(self):
+        coverage = self._repo_without("消防法").run_source_coverage_acceptance()
+
+        self.assertFalse(coverage["all_passed"])
+        reasons = {failure["reason"] for failure in coverage["failures"]}
+        self.assertIn("source_pack_references_article_missing_from_corpus", reasons)
+
+    def test_a_pending_article_carrying_text_fails_the_gate(self):
+        data = copy.deepcopy(self.repo.data)
+        for article in data["articles"]:
+            if article["law_name"] == "消防法":
+                article["text"] = "尚未驗證的條文內容"
+        coverage = LawRepository(data).run_source_coverage_acceptance()
+
+        self.assertFalse(coverage["all_passed"])
+        reasons = {failure["reason"] for failure in coverage["failures"]}
+        self.assertIn("pending_article_has_unverified_text", reasons)
+
+
+class PendingCitationTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = load_default_repository()
+
+    def test_pending_article_is_not_reported_as_an_existing_citation(self):
+        verified = self.repo.verify_citation(law_name="建築法", article_no="77-2")
+        pending = self.repo.verify_citation(law_name="消防法", article_no="6")
+
+        self.assertTrue(verified["exists"])
+        self.assertEqual(verified["verification_status"], "snapshot_verified")
+        # Known to the corpus, but not a citation anyone has verified.
+        self.assertFalse(pending["exists"])
+        self.assertEqual(pending["verification_status"], "pending_snapshot")
+        self.assertEqual(pending["canonical_name"], "消防法")
+        self.assertTrue(pending["source_url"])
+        self.assertTrue(pending["verification_note"])
+
+    def test_fire_and_compartment_wording_resolves_to_a_lead_not_a_citation(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "主旨：室內裝修竣工查驗補正通知\n"
+                "說明一：請補消防安全設備竣工文件。\n"
+                "說明二：風管貫穿防火區劃處請補防火填塞說明。"
+            ),
+            procedure_stage="竣工查驗",
+        )
+        items = {
+            item["item_id"]: item
+            for item in analysis["artifacts"]["atomic_correction_items.json"]
+        }
+
+        fire = items["auto-001"]
+        self.assertEqual((fire["law_name"], fire["article"]), ("消防法", "6"))
+        self.assertEqual(fire["citation_status"], "pending_source_verification")
+        self.assertTrue(fire["source_url"])
+        self.assertTrue(fire["human_review_required"])
+
+        # The penetration article matches more markers than the compartment article,
+        # so the more specific one wins instead of the pair cancelling out.
+        penetration = items["auto-002"]
+        self.assertEqual(
+            (penetration["law_name"], penetration["article"]),
+            ("建築技術規則建築設計施工編", "85-1"),
+        )
+        self.assertEqual(penetration["citation_status"], "pending_source_verification")
+
+    def test_pending_citation_fails_the_citation_gate(self):
+        audit = self.repo.run_audit_gates(
+            correction_items=[
+                {
+                    "law_name": "消防法",
+                    "article": "6",
+                    "citation_status": "pending_source_verification",
+                    "source_authority_rank": 2,
+                    "source_license_status": "open_data_reusable",
+                    "claim_supported": True,
+                    "claim_support_confidence": 0.9,
+                    "text": "請補消防安全設備竣工文件。",
+                }
+            ],
+        )
+        gate_status = {gate["gate"]: gate["status"] for gate in audit["run_meta"]["gate_results"]}
+
+        self.assertEqual(gate_status["citation_exists"], "failed")
+        self.assertTrue(audit["run_meta"]["human_review_required"])
+
+    def test_ambiguous_wording_still_stays_unresolved(self):
+        # Equal marker hits on two different articles is genuine ambiguity.
+        self.assertEqual(self.repo._infer_correction_article("請補防火門與風管相關說明。"), {})
+
+
+class ProvenanceTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = load_default_repository()
+
+    def _analysis(self):
+        """An analysis that actually raises a HITL question.
+
+        The 「確認」 wording is what makes the item need human adjudication, which is
+        what the approval tests are about.
+        """
+        analysis = self.repo.run_tw_corrections_analysis(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "主旨：室內裝修竣工查驗補正通知\n"
+                "說明一：請補竣工圖說、材料證明文件並確認。"
+            ),
+            files=[{"filename": "A101_竣工圖說.pdf", "file_type": "drawing_file"}],
+            procedure_stage="竣工查驗",
+        )
+        assert analysis["artifacts"]["client_questions.json"]["question_count"] > 0
+        return analysis
+
+    @staticmethod
+    def _question_key(analysis):
+        """The key the run actually asked, rather than a guessed one."""
+        return analysis["artifacts"]["client_questions.json"]["client_questions"][0][
+            "question_key"
+        ]
+
+    def test_analysis_issues_a_server_minted_run_bound_to_its_artifacts(self):
+        analysis = self._analysis()
+        run_id = analysis["run_id"]
+        provenance = analysis["artifacts"]["run_meta.json"]["provenance"]
+
+        self.assertTrue(run_id.startswith("run_"))
+        self.assertEqual(provenance["run_id"], run_id)
+        self.assertEqual(provenance["issuer"], PROVENANCE_ISSUER)
+        self.assertEqual(len(provenance["input_digest"]), 64)
+        # A second run over identical input is still a distinct, unguessable identity.
+        self.assertNotEqual(self._analysis()["run_id"], run_id)
+        self.assertEqual(
+            self.repo.provenance.verify_artifacts(run_id, analysis["artifacts"]),
+            STATUS_VERIFIED,
+        )
+
+    def test_agent_asserted_hitl_without_a_server_approval_fails_closed(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        # The agent hands back plausible audit fields it authored itself.
+        forged = dict(analysis["artifacts"])
+        forged["procedure_stage_signal.json"] = {
+            **analysis["artifacts"]["procedure_stage_signal.json"],
+            "confirmed_by_human": True,
+            "human_review_required": False,
+        }
+        forged["atomic_correction_items.json"] = [
+            {**item, "human_review_status": "confirmed", "adjudication": "人工確認完成"}
+            for item in analysis["artifacts"]["atomic_correction_items.json"]
+        ]
+
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=forged,
+            answers=[{"question_key": question_key, "answer_text": "已確認。"}],
+        )
+        provenance = response["artifacts"]["run_meta.json"]["provenance"]
+
+        self.assertEqual(provenance["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
+        self.assertEqual(provenance["approved_by"], [])
+        self.assertIn(question_key, provenance["unapproved_question_keys"])
+        # Tampering with the artifacts is visible on its own.
+        self.assertEqual(provenance["provenance_status"], STATUS_ARTIFACTS_MODIFIED)
+        self.assertIn("confirmed_by_human", provenance["ignored_caller_asserted_fields"])
+        self.assertIn("human_review_status", provenance["ignored_caller_asserted_fields"])
+        # The evidence record says unapproved rather than preserving the assertion.
+        self.assertEqual(
+            response["artifacts"]["run_meta.json"]["confirmation_status"],
+            CONFIRMATION_UNAPPROVED,
+        )
+        self.assertTrue(response["human_review_required"])
+
+    def test_unmodified_artifacts_verify_but_still_need_a_recorded_approval(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"],
+            answers=[{"question_key": question_key, "answer_text": "已確認。"}],
+        )
+        provenance = response["artifacts"]["run_meta.json"]["provenance"]
+
+        self.assertEqual(provenance["provenance_status"], STATUS_VERIFIED)
+        self.assertEqual(provenance["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
+
+    def test_recorded_approval_binds_an_identity_and_upgrades_the_evidence(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        run_id = analysis["run_id"]
+        answer = {"question_key": question_key, "answer_text": "已確認補材料證明。"}
+        record = self.repo.record_hitl_approval(
+            run_id=run_id,
+            question_key=question_key,
+            approved_by="user-42",
+            answer=answer,
+            analysis_artifacts=analysis["artifacts"],
+        )
+
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"],
+            answers=[answer],
+            run_id=run_id,
+        )
+        provenance = response["artifacts"]["run_meta.json"]["provenance"]
+
+        self.assertEqual(record["approved_by"], "user-42")
+        self.assertEqual(len(record["artifact_digest"]), 64)
+        self.assertEqual(provenance["provenance_status"], STATUS_VERIFIED)
+        self.assertEqual(provenance["human_confirmation_status"], CONFIRMATION_APPROVED)
+        self.assertEqual(provenance["approved_by"], ["user-42"])
+        self.assertEqual(provenance["unapproved_question_keys"], [])
+
+    def test_approval_requires_a_known_run_and_an_identity(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        with self.assertRaises(ValueError):
+            self.repo.record_hitl_approval(
+                run_id="run_deadbeef",
+                question_key=question_key,
+                approved_by="user-42",
+                answer={},
+                analysis_artifacts=analysis["artifacts"],
+            )
+        with self.assertRaises(ValueError):
+            self.repo.record_hitl_approval(
+                run_id=analysis["run_id"],
+                question_key=question_key,
+                approved_by="",
+                answer={},
+                analysis_artifacts=analysis["artifacts"],
+            )
+
+    def test_an_answer_edited_after_approval_loses_its_approval(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        run_id = analysis["run_id"]
+        approved = {"question_key": question_key, "answer_text": "已確認補材料證明。"}
+        self.repo.record_hitl_approval(
+            run_id=run_id,
+            question_key=question_key,
+            approved_by="user-42",
+            answer=approved,
+            analysis_artifacts=analysis["artifacts"],
+        )
+
+        def confirmation_for(answer):
+            run_meta = self.repo.run_tw_corrections_response(
+                analysis_artifacts=analysis["artifacts"], answers=[answer], run_id=run_id
+            )["artifacts"]["run_meta.json"]
+            return run_meta["provenance"], run_meta["human_review_required"]
+
+        same, same_review = confirmation_for(approved)
+        self.assertEqual(same["human_confirmation_status"], CONFIRMATION_APPROVED)
+        self.assertFalse(same_review)
+
+        # The approval covered one decision, not the question key in general.
+        swapped, swapped_review = confirmation_for(
+            {"question_key": question_key, "answer_text": "改成不必補件。"}
+        )
+        self.assertEqual(swapped["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
+        self.assertEqual(swapped["approved_by"], [])
+        self.assertEqual(swapped["unapproved_question_keys"], [question_key])
+        self.assertTrue(swapped_review)
+
+    def test_a_run_with_no_questions_does_not_need_an_approval(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text="本案辦理圖說審核，請補申請書。", procedure_stage="圖說審核"
+        )
+        self.assertEqual(analysis["artifacts"]["client_questions.json"]["question_count"], 0)
+
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"], answers=[], run_id=analysis["run_id"]
+        )
+        run_meta = response["artifacts"]["run_meta.json"]
+
+        # Nothing was asked, so nothing is outstanding. Flagging every such run would
+        # drain the signal from human_review_required.
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], CONFIRMATION_NOT_REQUIRED
+        )
+        self.assertEqual(run_meta["provenance"]["required_question_keys"], [])
+        self.assertFalse(run_meta["human_review_required"])
+        self.assertFalse(response["human_review_required"])
+
+    def test_stripping_the_questions_does_not_buy_the_no_confirmation_path(self):
+        analysis = self._analysis()
+        self.assertGreater(analysis["artifacts"]["client_questions.json"]["question_count"], 0)
+
+        forged = copy.deepcopy(analysis["artifacts"])
+        forged["client_questions.json"] = {
+            "client_questions": [],
+            "question_count": 0,
+            "human_review_required": False,
+        }
+        forged["atomic_correction_items.json"] = []
+        run_meta = self.repo.run_tw_corrections_response(
+            analysis_artifacts=forged, answers=[], run_id=analysis["run_id"]
+        )["artifacts"]["run_meta.json"]
+
+        self.assertEqual(run_meta["provenance"]["provenance_status"], STATUS_ARTIFACTS_MODIFIED)
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], CONFIRMATION_UNAPPROVED
+        )
+        self.assertTrue(run_meta["human_review_required"])
+
+    def test_unanswered_required_question_is_not_approved(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        run_meta = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"], answers=[], run_id=analysis["run_id"]
+        )["artifacts"]["run_meta.json"]
+
+        # A required question exists and nobody answered it, so this is not the
+        # "nothing to confirm" case.
+        self.assertTrue(run_meta["provenance"]["required_question_keys"])
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], CONFIRMATION_UNAPPROVED
+        )
+        self.assertTrue(run_meta["human_review_required"])
+
+    def test_unknown_run_id_cannot_be_upgraded_by_the_caller(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"],
+            answers=[{"question_key": question_key, "answer_text": "已確認。"}],
+            run_id="run_" + "0" * 32,
+        )
+        provenance = response["artifacts"]["run_meta.json"]["provenance"]
+        self.assertEqual(provenance["provenance_status"], STATUS_UNKNOWN_RUN)
+        self.assertEqual(provenance["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
 
 
 if __name__ == "__main__":

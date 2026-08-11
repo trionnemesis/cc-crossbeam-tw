@@ -20,6 +20,7 @@ SAFE_PROCESSING_ERRORS = {
     "MALWARE_DETECTED",
     "UNSUPPORTED_MEDIA_TYPE",
     "NO_EXTRACTABLE_TEXT",
+    "RESIDUAL_PII_BLOCKED",
 }
 
 
@@ -120,7 +121,9 @@ def process_upload(
         model_result: dict[str, Any] | None = None
         model_status = "disabled"
         if config.codex_enabled and _data_governance_passed(deterministic):
-            provider = codex_provider or CodexCliProvider()
+            provider = codex_provider or CodexCliProvider(
+                timeout_seconds=config.model_timeout_seconds
+            )
             model = provider.analyze(masking.text, deterministic)
             model_result = {
                 "summary": model.summary,
@@ -234,21 +237,35 @@ def process_review(config: WorkerConfig, analysis_run_id: str) -> None:
         if not run or run["status"] != "awaiting_review":
             raise RuntimeError("analysis run is not awaiting review")
         questions = connection.execute(
-            "SELECT question_key, answer, status FROM hitl_question "
+            "SELECT question_key, answer, status, answered_by_user_id FROM hitl_question "
             "WHERE analysis_run_id = ? ORDER BY created_at",
             (analysis_run_id,),
         ).fetchall()
     if any(row["status"] != "answered" or not row["answer"] for row in questions):
         raise RuntimeError("review answers are incomplete")
+    if any(not row["answered_by_user_id"] for row in questions):
+        raise RuntimeError("review answers are missing an authenticated approver")
 
     deterministic = json.loads(run["deterministic_result_json"])
     answers = [
         {"question_key": row["question_key"], "answer_text": row["answer"], "is_answered": True}
         for row in questions
     ]
-    response = load_default_repository().run_tw_corrections_response(
-        deterministic.get("artifacts", {}), answers
-    )
+    repository = load_default_repository()
+    # The artifacts come from this worker's private database, so the run identity can
+    # be restored; each answer is then bound to the session user who actually gave it.
+    artifacts = deterministic.get("artifacts", {})
+    run_id = repository.restore_analysis_run(artifacts)
+    if run_id:
+        for row, answer in zip(questions, answers):
+            repository.record_hitl_approval(
+                run_id=run_id,
+                question_key=row["question_key"],
+                approved_by=row["answered_by_user_id"],
+                answer=answer,
+                analysis_artifacts=artifacts,
+            )
+    response = repository.run_tw_corrections_response(artifacts, answers, run_id=run_id)
     response_json = json.dumps(response, ensure_ascii=False, sort_keys=True)
     now = int(time.time())
     with database.connect() as connection:

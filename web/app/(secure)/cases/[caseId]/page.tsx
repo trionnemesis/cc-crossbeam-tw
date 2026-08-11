@@ -131,6 +131,7 @@ export default async function CaseDetailPage({
             <div className="mt-6 grid gap-5 lg:grid-cols-2">
               <article className="rounded-[6px] border border-[var(--border)] bg-white p-6">
                 <h3 className="text-xl font-light text-[var(--ink)]">Audit gates</h3>
+                {analysis.confirmationProvenance ? <p className="mt-3 text-xs leading-5 text-[var(--muted)]">人工確認來源：{analysis.confirmationProvenance.confirmation === "server_approved" ? `已由 ${analysis.confirmationProvenance.approvedBy.join("、")} 確認` : "尚未經伺服器記錄的人工確認"}（run 驗證：{analysis.confirmationProvenance.status}）</p> : null}
                 <ul className="mt-5 space-y-3">
                   {analysis.gates.map((gate) => <li className="grid grid-cols-[1fr_auto] gap-3 border-t border-[var(--border)] pt-3 text-sm" key={gate.gate}><div><p className="font-medium text-[var(--ink)]">{gate.gate}</p><p className="mt-1 text-xs leading-5 text-[var(--muted)]">{gate.reason}</p></div><span className="text-xs text-[var(--success)]">{gate.status}</span></li>)}
                 </ul>
@@ -147,7 +148,7 @@ export default async function CaseDetailPage({
               <h3 className="text-xl font-light text-[var(--ink)]">補正項目</h3>
               <div className="mt-5 divide-y divide-[var(--border)]">
                 {analysis.corrections.length === 0 ? <p className="py-4 text-sm text-[var(--muted)]">目前沒有可顯示的 atomic correction item。</p> : null}
-                {analysis.corrections.map((item) => <div className="py-4" key={item.key}><p className="leading-7 text-[var(--text)]">{item.text}</p><p className="mt-2 text-xs text-[var(--muted)]">{item.lawName} {item.article} · {item.humanReviewRequired ? "需人工確認" : "已具證據"}</p></div>)}
+                {analysis.corrections.map((item) => <div className="py-4" key={item.key}><p className="leading-7 text-[var(--text)]">{item.text}</p><p className="mt-2 text-xs text-[var(--muted)]">{item.lawName} {item.article} · {item.citationStatus === "pending_source_verification" ? "候選法源，條文尚未驗證" : item.humanReviewRequired ? "需人工確認" : "已具證據"}{item.sourceUrl ? <> · <a className="text-[var(--interactive)] underline-offset-4 hover:underline" href={item.sourceUrl} rel="noreferrer" target="_blank">來源</a></> : null}</p></div>)}
               </div>
             </article>
 

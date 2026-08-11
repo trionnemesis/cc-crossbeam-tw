@@ -50,6 +50,31 @@ CODEX_WORKER_ENABLED=true
 `DATABASE_PATH`, `QUARANTINE_ROOT`, and `SANITIZED_ROOT` default to the private
 repository `.runtime` directory. That directory must be `0700`; files are `0600`.
 
+### Worker capacity
+
+The worker refuses work past these ceilings rather than queueing it without bound.
+Defaults suit the one-user pilot; raise them only with the host's CPU and memory in
+mind, because each pending job can start a Codex subprocess.
+
+```text
+WORKER_MAX_INFLIGHT_REQUESTS=16    # concurrent connections before 503
+WORKER_MAX_PROCESSING_WORKERS=2    # concurrent document analyses
+WORKER_MAX_PENDING_JOBS=8          # analyses accepted but not yet finished
+WORKER_REQUEST_TIMEOUT_SECONDS=30  # per-connection read timeout
+WORKER_MODEL_TIMEOUT_SECONDS=120   # Codex subprocess timeout
+```
+
+`WORKER_MAX_PENDING_JOBS` must be at least `WORKER_MAX_PROCESSING_WORKERS`; the worker
+refuses to start otherwise. A `503` with `Retry-After` from the upload endpoint means
+capacity was full — the upload was refused before any body was read, so nothing was
+written to quarantine and the client may retry.
+
+### Revoking access
+
+Change `OWNER_EMAIL` (or deactivate the invitation) and restart the web process. The
+allowlist is re-checked on every request, so the removed account's existing sessions are
+deleted the next time they are used; there is no separate session-purge step.
+
 ## Build and start
 
 ```sh
@@ -80,6 +105,45 @@ bytes out of the Next.js process.
 - LINE webhook modified-body signature test must return `401`.
 - Run `npm run acceptance:upload` with only the synthetic canary fixture.
 - Check `codex login status`; never print the credential file.
+
+## Law corpus verification
+
+Some articles are in the corpus as references without their text. They are marked
+`verification_status: "pending_snapshot"` and fail the citation gate on purpose: the
+corpus knows which law a correction points at, but nobody has verified what that law
+currently says. Reviewers get the candidate article and its source URL instead of
+"找不到可比對的法源條文", and the item still requires human confirmation.
+
+Check the current state at any time:
+
+```sh
+python3 -c "from tw_law_mcp.repository import load_default_repository as r; import json; print(json.dumps(r().run_source_coverage_acceptance(), ensure_ascii=False, indent=2))"
+```
+
+Currently pending: 消防法第6條, 建築技術規則建築設計施工編第79條 and 第85-1條. They are
+pending because the snapshots have not been taken, not because anything is broken.
+
+### Promoting a pending article
+
+Do this only from the official source; never from memory or a secondary site.
+
+1. Retrieve the article from 全國法規資料庫 (`law.moj.gov.tw`). If the host running this
+   work has restricted egress, allow that domain first — a snapshot from anywhere else
+   is not the snapshot the source policy promises.
+2. In `tw_law_mcp/data/p0_law_corpus.json`, set the article's `text`, change
+   `verification_status` to `snapshot_verified`, and drop `verification_note`.
+3. Set `verified_at` on the matching entry in `source_policies` and remove its
+   `pending_reason`.
+4. Re-run the Python suite. `run_source_coverage_acceptance` rejects a `pending_snapshot`
+   article that carries text, so a half-finished promotion fails rather than shipping an
+   unverified snapshot dressed as a verified one.
+
+### Adding a new law
+
+Add the source unit to the relevant pack under `tw_law_mcp/data/sources/`, add a source
+policy, then add the article — as `pending_snapshot` if its text is not yet snapshotted.
+The coverage gate fails when a pack references an article the corpus lacks, which is
+what caught the original 消防法/建築技術規則 gap.
 
 ## Backup, retention, and incident response
 

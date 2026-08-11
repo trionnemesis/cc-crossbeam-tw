@@ -49,6 +49,75 @@ class StdioServerTests(unittest.TestCase):
             process.stdout.close()
             process.stderr.close()
 
+    def test_server_rejects_oversized_and_deeply_nested_messages(self):
+        process = subprocess.Popen(
+            [sys.executable, "scripts/tw_law_mcp_stdio.py"],
+            cwd=".",
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        try:
+            oversized = json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "tools/call",
+                    "params": {"name": "verify_citation", "arguments": {"law_name": "x" * (1 << 21)}},
+                }
+            )
+            process.stdin.write(oversized + "\n")
+            process.stdin.flush()
+            size_error = json.loads(process.stdout.readline())
+
+            nested = {"leaf": True}
+            for _ in range(40):
+                nested = {"next": nested}
+            depth_error = send_json_rpc(
+                process,
+                {"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": nested},
+            )
+
+            wide_error = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {"items": [0] * 5_000},
+                },
+            )
+
+            # The server keeps serving after each refusal.
+            initialize = send_json_rpc(
+                process,
+                {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2025-06-18",
+                        "capabilities": {},
+                        "clientInfo": {"name": "unittest", "version": "0.1.0"},
+                    },
+                },
+            )
+
+            self.assertEqual(size_error["error"]["code"], -32600)
+            self.assertIn("maximum size", size_error["error"]["message"])
+            self.assertEqual(depth_error["error"]["code"], -32600)
+            self.assertEqual(depth_error["id"], 2)
+            self.assertEqual(wide_error["error"]["code"], -32600)
+            self.assertEqual(initialize["result"]["serverInfo"]["name"], "tw-law-mcp")
+        finally:
+            process.terminate()
+            process.wait(timeout=5)
+            process.stdin.close()
+            process.stdout.close()
+            process.stderr.close()
+
     def test_tool_call_exception_returns_mcp_tool_error_result(self):
         process = subprocess.Popen(
             [sys.executable, "scripts/tw_law_mcp_stdio.py"],
@@ -395,6 +464,7 @@ class StdioServerTests(unittest.TestCase):
             self.assertIn("plan_web_search_fallback", tool_names)
             self.assertIn("run_data_layout_acceptance", tool_names)
             self.assertIn("run_two_stage_flow_acceptance", tool_names)
+            self.assertIn("run_source_coverage_acceptance", tool_names)
             self.assertIn("run_tw_corrections_analysis", tool_names)
             self.assertIn("run_tw_corrections_response", tool_names)
 

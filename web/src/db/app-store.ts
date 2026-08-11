@@ -3,6 +3,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
+import type { AllowlistIdentity } from "@/src/auth/allowlist";
 import {
   AuthorizationError,
   type MembershipReader,
@@ -14,7 +15,8 @@ import {
   caseMembership,
   caseRecord,
   invitation,
-  tenant
+  tenant,
+  user
 } from "@/src/db/schema";
 
 export interface CaseSummary {
@@ -29,6 +31,15 @@ export interface CaseSummary {
 
 export class AppStore implements MembershipReader {
   constructor(private readonly database: LocalDatabase) {}
+
+  async findAuthIdentity(userId: string): Promise<AllowlistIdentity | null> {
+    const [row] = await this.database.db
+      .select({ email: user.email, isAnonymous: user.isAnonymous })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+    return row ?? null;
+  }
 
   async isInvitedEmail(email: string): Promise<boolean> {
     const normalized = email.trim().toLowerCase();

@@ -45,6 +45,30 @@
       "license_evidence": "全國法規資料庫提供政府網站資料開放宣告入口。"
     },
     {
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0120001",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_update_policy": "adapter_checked",
+      "crawl_policy": "snapshot_with_checksum",
+      "verified_law_name": "消防法",
+      "verified_at": null,
+      "update_policy_evidence": "全國法規資料庫頁尾說明每週五定期更新，法規整編資料有截止日。",
+      "license_evidence": "全國法規資料庫提供政府網站資料開放宣告入口。",
+      "pending_reason": "條文快照尚未取得；本專案執行環境的網路輸出政策封鎖 law.moj.gov.tw，需由操作者放行網域或提供官方快照後才能標記 verified。"
+    },
+    {
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070115",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_update_policy": "adapter_checked",
+      "crawl_policy": "snapshot_with_checksum",
+      "verified_law_name": "建築技術規則建築設計施工編",
+      "verified_at": null,
+      "update_policy_evidence": "全國法規資料庫頁尾說明每週五定期更新，法規整編資料有截止日。",
+      "license_evidence": "全國法規資料庫提供政府網站資料開放宣告入口。",
+      "pending_reason": "條文快照尚未取得；本專案執行環境的網路輸出政策封鎖 law.moj.gov.tw，需由操作者放行網域或提供官方快照後才能標記 verified。"
+    },
+    {
       "source_url": "https://web.law.ntpc.gov.tw/",
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
@@ -200,6 +224,7 @@
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
       "source_adapter_id": "tw-moj-law-adapter",
+      "verification_status": "snapshot_verified",
       "text": "申請室內裝修審核時，應檢附申請書、建築物權利證明文件、前次核准使用執照平面圖或相關圖面、室內裝修圖說及其他主管機關指定文件。室內裝修圖說應由依法登記之專業設計技術人員或建築師簽章負責。"
     },
     {
@@ -216,6 +241,7 @@
       "source_authority_rank": 2,
       "source_license_status": "open_data_reusable",
       "source_adapter_id": "tw-moj-law-adapter",
+      "verification_status": "snapshot_verified",
       "text": "供公眾使用建築物之室內裝修，應申請審查許可；其管理辦法由中央主管建築機關定之。"
     },
     {
@@ -232,7 +258,65 @@
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
       "source_adapter_id": "ntpc-official-portal",
+      "verification_status": "snapshot_verified",
       "text": "新北市建築物室內裝修審核及查驗案件，依程序分為圖說審核、竣工查驗、變更使用併室內裝修竣工查驗及簡易室內裝修。"
+    },
+    {
+      "law_id": "fire-services-act",
+      "law_name": "消防法",
+      "article": "6",
+      "paragraph": null,
+      "item": null,
+      "effective_date": "2025-01-01",
+      "amendment_date": "2025-01-01",
+      "hierarchy": "central",
+      "authority": "NFA",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0120001",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_adapter_id": "tw-moj-law-adapter",
+      "verification_status": "pending_snapshot",
+      "referenced_by_source_pack": "tw-central-fire-equipment",
+      "verification_note": "來源 pack 已引用本條作為消防安全設備設置與維護的中央法源，但條文尚未取得快照與 checksum。在完成驗證前，citation gate 對本條 fail closed，只提供候選法源與來源連結供人工確認。",
+      "text": null
+    },
+    {
+      "law_id": "building-technical-regulations-design",
+      "law_name": "建築技術規則建築設計施工編",
+      "article": "79",
+      "paragraph": null,
+      "item": null,
+      "effective_date": "2025-01-01",
+      "amendment_date": "2025-01-01",
+      "hierarchy": "central",
+      "authority": "MOI",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070115",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_adapter_id": "tw-moj-law-adapter",
+      "verification_status": "pending_snapshot",
+      "referenced_by_source_pack": "tw-fire-compartment-and-egress",
+      "verification_note": "來源 pack 已引用本條作為防火區劃、防火牆、防火門與防火樓板的法源，但條文尚未取得快照與 checksum。在完成驗證前，citation gate 對本條 fail closed。",
+      "text": null
+    },
+    {
+      "law_id": "building-technical-regulations-design",
+      "law_name": "建築技術規則建築設計施工編",
+      "article": "85-1",
+      "paragraph": null,
+      "item": null,
+      "effective_date": "2025-01-01",
+      "amendment_date": "2025-01-01",
+      "hierarchy": "central",
+      "authority": "MOI",
+      "source_url": "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070115",
+      "source_authority_rank": 2,
+      "source_license_status": "open_data_reusable",
+      "source_adapter_id": "tw-moj-law-adapter",
+      "verification_status": "pending_snapshot",
+      "referenced_by_source_pack": "tw-fire-compartment-and-egress",
+      "verification_note": "來源 pack 已引用本條作為風管、管線與設備箱貫穿防火區劃的法源，但條文尚未取得快照與 checksum。在完成驗證前，citation gate 對本條 fail closed。",
+      "text": null
     }
   ],
   "procedure_requirements": {

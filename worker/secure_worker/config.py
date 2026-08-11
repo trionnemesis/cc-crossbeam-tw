@@ -49,6 +49,15 @@ def _allowed_origin(value: str, mode: str) -> str:
     return value.rstrip("/")
 
 
+def _bounded_int(
+    env: dict[str, str], key: str, default: int, minimum: int, maximum: int
+) -> int:
+    value = int(env.get(key, str(default)))
+    if value < minimum or value > maximum:
+        raise ValueError(f"{key} must be between {minimum} and {maximum}")
+    return value
+
+
 def _load_or_create_internal_secret() -> str:
     RUNTIME_ROOT.mkdir(mode=0o700, parents=True, exist_ok=True)
     secret_path = RUNTIME_ROOT / "worker-internal-secret"
@@ -74,6 +83,13 @@ class WorkerConfig:
     max_upload_bytes: int = 25 * 1024 * 1024
     codex_enabled: bool = False
     internal_secret: str = "test-internal-secret"
+    # Backpressure: the worker refuses work it cannot finish rather than letting
+    # threads, memory and Codex subprocesses grow without a ceiling.
+    max_inflight_requests: int = 16
+    max_processing_workers: int = 2
+    max_pending_jobs: int = 8
+    request_timeout_seconds: int = 30
+    model_timeout_seconds: int = 120
 
     @classmethod
     def from_environment(cls, environment: dict[str, str] | None = None) -> "WorkerConfig":
@@ -85,6 +101,10 @@ class WorkerConfig:
         port = int(env.get("WORKER_BIND_PORT", "8787"))
         if port < 1024 or port > 65535:
             raise ValueError("invalid worker port")
+        max_processing_workers = _bounded_int(env, "WORKER_MAX_PROCESSING_WORKERS", 2, 1, 32)
+        max_pending_jobs = _bounded_int(env, "WORKER_MAX_PENDING_JOBS", 8, 1, 256)
+        if max_pending_jobs < max_processing_workers:
+            raise ValueError("pending job capacity must cover every processing worker")
         return cls(
             database_path=_private_runtime_path(
                 env.get("DATABASE_PATH", ".runtime/secure-web.sqlite"), directory=False
@@ -102,4 +122,9 @@ class WorkerConfig:
             bind_port=port,
             codex_enabled=env.get("CODEX_WORKER_ENABLED", "false").lower() == "true",
             internal_secret=_load_or_create_internal_secret(),
+            max_inflight_requests=_bounded_int(env, "WORKER_MAX_INFLIGHT_REQUESTS", 16, 1, 512),
+            max_processing_workers=max_processing_workers,
+            max_pending_jobs=max_pending_jobs,
+            request_timeout_seconds=_bounded_int(env, "WORKER_REQUEST_TIMEOUT_SECONDS", 30, 1, 600),
+            model_timeout_seconds=_bounded_int(env, "WORKER_MODEL_TIMEOUT_SECONDS", 120, 1, 900),
         )
