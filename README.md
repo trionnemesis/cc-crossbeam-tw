@@ -66,7 +66,27 @@ flowchart LR
 
 The Secure Web path keeps raw bytes out of the Next.js request body, model prompt, and logs. The local Codex provider is a worker credential only; it is never the website identity provider.
 
-> **TODO (demo asset):** the [GitHub Pages site](https://trionnemesis.github.io/cc-crossbeam-tw/) is static documentation, not a hosted instance of the Secure Web pilot — the actual HITL flow requires local Google/LINE auth and a locally running worker, which cannot be captured as a real screenshot or GIF from this environment. A walkthrough recording of the Secure Web HITL flow (intake → quarantine → masking → human confirmation) is still needed; track it as a follow-up once the pilot runs somewhere reachable for capture.
+### Walkthrough
+
+Captured from the running pilot against a [synthetic correction notice](./tests/fixtures/demo_correction_notice.txt) — no real case data. Re-created by [`web/scripts/capture-demo.ts`](./web/scripts/capture-demo.ts), which fails if any raw value from the fixture reaches a rendered page.
+
+**1. Intake — raw bytes go to private quarantine, not to Next.js.** Consent is recorded with the upload intent; the browser sends the file straight to the worker.
+
+![Secure upload into private quarantine, showing the per-case data boundary](./docs/media/secure-web-1-quarantine-upload.png)
+
+**2. After masking — evidence, and the gates that failed.** Personal data is masked before analysis. Each correction item carries its own citation state: `已具證據` where the article is snapshot-verified, `候選法源，條文尚未驗證` where the corpus knows the law but not its current text, and `法源待確認` where nothing matched. `citation_exists` failing here is the intended result, not a defect.
+
+![Audit gates, law snapshot, and source-bound correction items in three citation states](./docs/media/secure-web-2-masked-analysis.png)
+
+**3. Human confirmation is a required output.** Low-confidence, professional-signature, and procedure-stage questions are asked, never inferred.
+
+![Human-in-the-loop queue with the questions the run raised](./docs/media/secure-web-3-hitl-review.png)
+
+**4. Response draft, with its limits stated.** The draft is produced only after every question is answered, and says plainly what it is not.
+
+![Correction response draft listing every item and its explicit limitations](./docs/media/secure-web-4-response-draft.png)
+
+The [GitHub Pages site](https://trionnemesis.github.io/cc-crossbeam-tw/) is static documentation, not a hosted instance — the pilot runs locally by design.
 
 ## What it does
 
