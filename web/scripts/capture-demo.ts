@@ -7,7 +7,11 @@
  * what the running app produced.
  *
  * Playwright is intentionally not a project dependency; it is only needed to
- * refresh these images. Run it ad hoc:
+ * refresh these images. Because of that this file is excluded from `tsconfig.json`
+ * — after `npm ci` the import is unresolvable, so typechecking it would fail CI for
+ * a tool CI never runs. Install playwright locally to get type checking here.
+ *
+ * Run it ad hoc:
  *
  *   cd web && npm install --no-save playwright
  *   npm start                                   # in another shell
@@ -123,7 +127,7 @@ async function main() {
       const before = remaining;
       await page
         .waitForFunction(
-          (count) => document.querySelectorAll("form textarea").length < count,
+          (count: number) => document.querySelectorAll("form textarea").length < count,
           before,
           { timeout: 30_000 }
         )
