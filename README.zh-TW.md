@@ -66,7 +66,27 @@ flowchart LR
 
 Secure Web 流程會讓 raw bytes 不進入 Next.js request body、model prompt 或 logs。Local Codex provider 只是 worker 的模型 credential，不是網站的登入身份提供者。
 
-> **TODO（demo 素材）：** [GitHub Pages 網站](https://trionnemesis.github.io/cc-crossbeam-tw/)是靜態文件站，並非 Secure Web pilot 的實際部署——真正的 HITL 流程需要 local Google／LINE 登入與本機執行的 worker，無法在目前環境中截到真實畫面或錄成 GIF。Secure Web HITL 流程（intake → quarantine → masking → 人工確認）的操作錄影仍待補；等 pilot 有可截圖的可連線環境後再補上。
+### 流程實拍
+
+以[合成補正通知](./tests/fixtures/demo_correction_notice.txt)在實際執行的 pilot 上擷取，不含任何真實案件資料。可用 [`web/scripts/capture-demo.ts`](./web/scripts/capture-demo.ts) 重現；只要 fixture 的原始值出現在任何畫面上，腳本就會失敗。
+
+**1. 收件——raw bytes 進入 private quarantine，不經過 Next.js。** 同意紀錄隨 upload intent 一併寫入，檔案由瀏覽器直接送到 worker。
+
+![安全上傳進入 private quarantine，並顯示本案件資料邊界](./docs/media/secure-web-1-quarantine-upload.png)
+
+**2. 遮罩後——證據，以及沒通過的 gate。** 個資在分析前已遮罩。每個補正項各自帶有法源狀態：條文已驗證者為 `已具證據`，語料知道是哪部法但尚未驗證條文者為 `候選法源，條文尚未驗證`，比對不到者為 `法源待確認`。這裡 `citation_exists` 失敗是預期結果，不是壞掉。
+
+![Audit gates、法源 snapshot 與三種法源狀態的補正項目](./docs/media/secure-web-2-masked-analysis.png)
+
+**3. 人工確認是必要產出。** 低信心、專業簽證與程序階段的問題一律提問，不由模型自行補完。
+
+![人工確認佇列，列出本次分析提出的問題](./docs/media/secure-web-3-hitl-review.png)
+
+**4. 補正回覆草稿，並載明界線。** 所有問題都回答後才產生草稿，且明確說明它不是什麼。
+
+![補正回覆草稿，列出各項目與明確的限制聲明](./docs/media/secure-web-4-response-draft.png)
+
+[GitHub Pages 網站](https://trionnemesis.github.io/cc-crossbeam-tw/)是靜態文件站，並非實際部署——pilot 依設計就是在本機執行。
 
 ## 可以做什麼
 
