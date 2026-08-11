@@ -87,6 +87,34 @@ Compliance evidence is only worth something if the caller cannot write it.
   letting it record its own approval would only launder an assertion into evidence. The
   secure worker calls it with the session user who actually answered.
 
+## Law corpus verification
+
+An article is in the corpus for one of two reasons, and the difference is load-bearing.
+
+| `verification_status` | Meaning | `text` | Citation gate |
+| --- | --- | --- | --- |
+| `snapshot_verified` | Text was snapshotted from the official source and checksummed | present | can pass |
+| `pending_snapshot` | A source pack references the article, but nobody has verified its text | must be absent | **always fails** |
+
+A `pending_snapshot` article is a lead, not a citation. `verify_citation` reports
+`exists: false` for it, `_infer_correction_article` yields
+`citation_status: "pending_source_verification"`, and the item keeps
+`human_review_required`. What the reviewer gains over an unresolved item is the
+candidate law and its source URL, instead of "找不到可比對的法源條文".
+
+`run_source_coverage_acceptance` keeps the corpus and the source packs honest with each
+other: every article a pack references must exist, every article must have a source
+policy, and a `pending_snapshot` article carrying text is a failure — that would be an
+unverified snapshot wearing a verified one's clothes. The packs advertised 消防法 and
+建築技術規則 articles the corpus never held, which is why every fire or compartment
+correction resolved to nothing; this gate makes that class of drift fail loudly.
+
+Source policies distinguish the same two things at their own level:
+`source_policy_evidence_complete` asks whether a policy declares its evidence fields (a
+pending source does, via `pending_reason`), while `all_sources_verified` and
+`pending_sources` report what has actually been verified. Completeness of the
+declaration is not verification, and the acceptance output states both.
+
 ## Worker backpressure
 
 The worker refuses work it cannot finish rather than growing threads, memory, and Codex

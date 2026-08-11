@@ -1,3 +1,4 @@
+import copy
 import unittest
 
 from tw_law_mcp.provenance import (
@@ -8,7 +9,7 @@ from tw_law_mcp.provenance import (
     STATUS_UNKNOWN_RUN,
     STATUS_VERIFIED,
 )
-from tw_law_mcp.repository import load_default_repository
+from tw_law_mcp.repository import LawRepository, load_default_repository
 
 
 class LawRepositoryTests(unittest.TestCase):
@@ -132,10 +133,24 @@ class LawRepositoryTests(unittest.TestCase):
 
         self.assertTrue(acceptance["all_passed"])
         self.assertEqual(acceptance["failures"], [])
-        self.assertEqual(acceptance["article_source_count"], 3)
+        self.assertEqual(acceptance["article_source_count"], 5)
         self.assertEqual(acceptance["source_class_count"], 2)
         self.assertEqual(acceptance["comparison_count"], 1)
         self.assertEqual(len(acceptance["covered_source_classes"]), 2)
+
+    def test_pending_sources_are_reported_rather_than_passing_quietly(self):
+        acceptance = self.repo.run_source_policy_acceptance()
+
+        # Declaring the evidence completely is not the same as having verified it.
+        self.assertTrue(acceptance["all_passed"])
+        self.assertFalse(acceptance["all_sources_verified"])
+        self.assertEqual(acceptance["pending_source_count"], 2)
+        self.assertEqual(
+            {item["verified_law_name"] for item in acceptance["pending_sources"]},
+            {"消防法", "建築技術規則建築設計施工編"},
+        )
+        for item in acceptance["pending_sources"]:
+            self.assertTrue(item["pending_reason"])
 
     def test_list_jurisdictions_keeps_disabled_stubs_fail_closed(self):
         enabled = self.repo.list_jurisdictions()
@@ -182,6 +197,7 @@ class LawRepositoryTests(unittest.TestCase):
                 "scenario_matrix",
                 "split_data_layout",
                 "source_adapters",
+                "source_coverage",
                 "two_stage_flow",
             }.issubset(set(acceptance["gates"]))
         )
@@ -835,6 +851,115 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertEqual(gate_status["claim_supported"], "failed")
         self.assertEqual(gate_status["red_line_linter"], "failed")
         self.assertEqual(gate_status["data_governance"], "failed")
+
+
+class SourceCoverageTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = load_default_repository()
+
+    def _repo_without(self, law_name):
+        data = copy.deepcopy(self.repo.data)
+        data["articles"] = [a for a in data["articles"] if a["law_name"] != law_name]
+        return LawRepository(data)
+
+    def test_corpus_covers_every_article_the_source_packs_reference(self):
+        coverage = self.repo.run_source_coverage_acceptance()
+
+        self.assertTrue(coverage["all_passed"])
+        self.assertEqual(coverage["failures"], [])
+        self.assertEqual(coverage["referenced_article_count"], 5)
+        self.assertEqual(coverage["verified_article_count"], 3)
+        self.assertEqual(coverage["pending_article_count"], 3)
+
+    def test_an_article_a_pack_references_but_the_corpus_lacks_fails_the_gate(self):
+        coverage = self._repo_without("消防法").run_source_coverage_acceptance()
+
+        self.assertFalse(coverage["all_passed"])
+        reasons = {failure["reason"] for failure in coverage["failures"]}
+        self.assertIn("source_pack_references_article_missing_from_corpus", reasons)
+
+    def test_a_pending_article_carrying_text_fails_the_gate(self):
+        data = copy.deepcopy(self.repo.data)
+        for article in data["articles"]:
+            if article["law_name"] == "消防法":
+                article["text"] = "尚未驗證的條文內容"
+        coverage = LawRepository(data).run_source_coverage_acceptance()
+
+        self.assertFalse(coverage["all_passed"])
+        reasons = {failure["reason"] for failure in coverage["failures"]}
+        self.assertIn("pending_article_has_unverified_text", reasons)
+
+
+class PendingCitationTests(unittest.TestCase):
+    def setUp(self):
+        self.repo = load_default_repository()
+
+    def test_pending_article_is_not_reported_as_an_existing_citation(self):
+        verified = self.repo.verify_citation(law_name="建築法", article_no="77-2")
+        pending = self.repo.verify_citation(law_name="消防法", article_no="6")
+
+        self.assertTrue(verified["exists"])
+        self.assertEqual(verified["verification_status"], "snapshot_verified")
+        # Known to the corpus, but not a citation anyone has verified.
+        self.assertFalse(pending["exists"])
+        self.assertEqual(pending["verification_status"], "pending_snapshot")
+        self.assertEqual(pending["canonical_name"], "消防法")
+        self.assertTrue(pending["source_url"])
+        self.assertTrue(pending["verification_note"])
+
+    def test_fire_and_compartment_wording_resolves_to_a_lead_not_a_citation(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text=(
+                "發文機關：新北市政府工務局\n"
+                "主旨：室內裝修竣工查驗補正通知\n"
+                "說明一：請補消防安全設備竣工文件。\n"
+                "說明二：風管貫穿防火區劃處請補防火填塞說明。"
+            ),
+            procedure_stage="竣工查驗",
+        )
+        items = {
+            item["item_id"]: item
+            for item in analysis["artifacts"]["atomic_correction_items.json"]
+        }
+
+        fire = items["auto-001"]
+        self.assertEqual((fire["law_name"], fire["article"]), ("消防法", "6"))
+        self.assertEqual(fire["citation_status"], "pending_source_verification")
+        self.assertTrue(fire["source_url"])
+        self.assertTrue(fire["human_review_required"])
+
+        # The penetration article matches more markers than the compartment article,
+        # so the more specific one wins instead of the pair cancelling out.
+        penetration = items["auto-002"]
+        self.assertEqual(
+            (penetration["law_name"], penetration["article"]),
+            ("建築技術規則建築設計施工編", "85-1"),
+        )
+        self.assertEqual(penetration["citation_status"], "pending_source_verification")
+
+    def test_pending_citation_fails_the_citation_gate(self):
+        audit = self.repo.run_audit_gates(
+            correction_items=[
+                {
+                    "law_name": "消防法",
+                    "article": "6",
+                    "citation_status": "pending_source_verification",
+                    "source_authority_rank": 2,
+                    "source_license_status": "open_data_reusable",
+                    "claim_supported": True,
+                    "claim_support_confidence": 0.9,
+                    "text": "請補消防安全設備竣工文件。",
+                }
+            ],
+        )
+        gate_status = {gate["gate"]: gate["status"] for gate in audit["run_meta"]["gate_results"]}
+
+        self.assertEqual(gate_status["citation_exists"], "failed")
+        self.assertTrue(audit["run_meta"]["human_review_required"])
+
+    def test_ambiguous_wording_still_stays_unresolved(self):
+        # Equal marker hits on two different articles is genuine ambiguity.
+        self.assertEqual(self.repo._infer_correction_article("請補防火門與風管相關說明。"), {})
 
 
 class ProvenanceTests(unittest.TestCase):

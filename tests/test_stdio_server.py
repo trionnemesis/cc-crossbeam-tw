@@ -464,6 +464,7 @@ class StdioServerTests(unittest.TestCase):
             self.assertIn("plan_web_search_fallback", tool_names)
             self.assertIn("run_data_layout_acceptance", tool_names)
             self.assertIn("run_two_stage_flow_acceptance", tool_names)
+            self.assertIn("run_source_coverage_acceptance", tool_names)
             self.assertIn("run_tw_corrections_analysis", tool_names)
             self.assertIn("run_tw_corrections_response", tool_names)
 

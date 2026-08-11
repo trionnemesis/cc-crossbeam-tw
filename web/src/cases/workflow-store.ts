@@ -39,6 +39,8 @@ export interface CorrectionView {
   lawName: string;
   article: string;
   humanReviewRequired: boolean;
+  citationStatus: string;
+  sourceUrl: string | null;
 }
 
 export interface AnalysisView {
@@ -127,7 +129,9 @@ function parseAnalysis(row: {
         text: text(correction.text, text(correction.source_span, "需人工確認")),
         lawName: text(correction.law_name, "法源待確認"),
         article: text(correction.article, "—"),
-        humanReviewRequired: Boolean(correction.human_review_required)
+        humanReviewRequired: Boolean(correction.human_review_required),
+        citationStatus: text(correction.citation_status, "unresolved"),
+        sourceUrl: text(correction.source_url) || null
       };
     }),
     modelSummary: text(model.summary) || null,

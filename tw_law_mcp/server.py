@@ -437,6 +437,15 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "run_source_coverage_acceptance",
+        "description": (
+            "Verify the law corpus against the source packs: every pack-referenced article "
+            "exists, every article has a source policy, and pending articles carry no "
+            "unverified text."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "run_tw_corrections_analysis",
         "description": "Run stage 1 Taiwan corrections analysis from masked text and metadata-only files.",
         "inputSchema": {
@@ -519,6 +528,7 @@ class TwLawMcpServer:
             "build_hitl_confirmation_packet": self.repo.build_hitl_confirmation_packet,
             "apply_hitl_confirmations": self.repo.apply_hitl_confirmations,
             "run_audit_gates": self.repo.run_audit_gates,
+            "run_source_coverage_acceptance": self.repo.run_source_coverage_acceptance,
             "run_tw_corrections_analysis": self.repo.run_tw_corrections_analysis,
             "run_tw_corrections_response": self.repo.run_tw_corrections_response,
             "run_two_stage_flow_acceptance": self.repo.run_two_stage_flow_acceptance,

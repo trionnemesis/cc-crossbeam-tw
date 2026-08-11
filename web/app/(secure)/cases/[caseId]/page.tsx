@@ -148,7 +148,7 @@ export default async function CaseDetailPage({
               <h3 className="text-xl font-light text-[var(--ink)]">補正項目</h3>
               <div className="mt-5 divide-y divide-[var(--border)]">
                 {analysis.corrections.length === 0 ? <p className="py-4 text-sm text-[var(--muted)]">目前沒有可顯示的 atomic correction item。</p> : null}
-                {analysis.corrections.map((item) => <div className="py-4" key={item.key}><p className="leading-7 text-[var(--text)]">{item.text}</p><p className="mt-2 text-xs text-[var(--muted)]">{item.lawName} {item.article} · {item.humanReviewRequired ? "需人工確認" : "已具證據"}</p></div>)}
+                {analysis.corrections.map((item) => <div className="py-4" key={item.key}><p className="leading-7 text-[var(--text)]">{item.text}</p><p className="mt-2 text-xs text-[var(--muted)]">{item.lawName} {item.article} · {item.citationStatus === "pending_source_verification" ? "候選法源，條文尚未驗證" : item.humanReviewRequired ? "需人工確認" : "已具證據"}{item.sourceUrl ? <> · <a className="text-[var(--interactive)] underline-offset-4 hover:underline" href={item.sourceUrl} rel="noreferrer" target="_blank">來源</a></> : null}</p></div>)}
               </div>
             </article>
 

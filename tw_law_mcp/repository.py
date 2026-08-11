@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -151,6 +152,28 @@ def _without_asserted_confirmations(value: Any) -> tuple[Any, list[str]]:
     return value, []
 
 
+PENDING_CITATION_STATUS = "pending_source_verification"
+
+_ARTICLE_REFERENCE = re.compile(r"^(?P<law_name>.+?)第(?P<article>[0-9]+(?:-[0-9]+)?)條$")
+
+
+def _parse_article_reference(source_title: str) -> dict[str, str] | None:
+    """Split a pack's `source_title` such as 消防法第6條 into law name and article."""
+    match = _ARTICLE_REFERENCE.match(source_title.strip())
+    if not match:
+        return None
+    return {"law_name": match.group("law_name"), "article": match.group("article")}
+
+
+def _verification_status(article: dict[str, Any]) -> str:
+    """Articles predating the field are the ones that shipped with verified text."""
+    return str(article.get("verification_status", "snapshot_verified"))
+
+
+def _is_snapshot_verified(article: dict[str, Any]) -> bool:
+    return _verification_status(article) == "snapshot_verified" and bool(article.get("text"))
+
+
 def _first_marker_value(line: str, markers: tuple[str, ...]) -> str | None:
     for marker in markers:
         if marker in line:
@@ -250,7 +273,9 @@ class LawRepository:
                 continue
             if not _effective_as_of(article, as_of_date):
                 continue
-            article_text = article["text"].lower()
+            # Pending articles have no snapshot to search; they can still be reached by
+            # law name so a reviewer can find the lead.
+            article_text = (article.get("text") or "").lower()
             article_name = article["law_name"].lower()
             score = sum(
                 article_text.count(term) + article_name.count(term)
@@ -298,7 +323,10 @@ class LawRepository:
         as_of_date: str | None,
     ) -> dict[str, Any]:
         public = dict(article)
-        public["checksum"] = _checksum(article["text"])
+        # A pending article has no text to checksum; emitting a checksum over "" would
+        # look like a verified snapshot of an empty law.
+        public["checksum"] = _checksum(article["text"]) if article.get("text") else None
+        public["verification_status"] = _verification_status(article)
         public["as_of_date"] = as_of_date
         if score is not None:
             public["score"] = score
@@ -347,19 +375,32 @@ class LawRepository:
                 effective_matches = (
                     effective_date is None or effective_date == article["effective_date"]
                 )
+                # A referenced-but-unsnapshotted article is a lead for a reviewer, not a
+                # citation. Reporting exists=True here would let the citation gate pass on
+                # text nobody has verified.
+                verified = _is_snapshot_verified(article)
                 return {
-                    "exists": True,
+                    "exists": verified,
+                    "verification_status": _verification_status(article),
                     "canonical_name": article["law_name"],
+                    "source_url": article.get("source_url"),
                     "version": {
                         "effective_date": article["effective_date"],
                         "amendment_date": article["amendment_date"],
                     },
                     "rank": article["source_authority_rank"],
-                    "diff": "match" if effective_matches else "effective_date_mismatch",
+                    "diff": (
+                        ("match" if effective_matches else "effective_date_mismatch")
+                        if verified
+                        else "pending_source_verification"
+                    ),
+                    **({} if verified else {"verification_note": article.get("verification_note")}),
                 }
         return {
             "exists": False,
+            "verification_status": "not_in_corpus",
             "canonical_name": None,
+            "source_url": None,
             "version": None,
             "rank": None,
             "diff": "not_found",
@@ -546,10 +587,26 @@ class LawRepository:
             "license_evidence",
         }
         incomplete_policies = []
+        pending_sources = []
         for source_url, policy in policies.items():
-            missing = sorted(field for field in required_policy_fields if not policy.get(field))
+            # A source awaiting its snapshot has no verified_at yet. That is a complete
+            # declaration as long as it says why; it is tracked separately below so the
+            # unverified state stays visible instead of passing quietly.
+            pending = not policy.get("verified_at") and bool(policy.get("pending_reason"))
+            expected_fields = (
+                required_policy_fields - {"verified_at"} if pending else required_policy_fields
+            )
+            missing = sorted(field for field in expected_fields if not policy.get(field))
             if missing:
                 incomplete_policies.append({"source_url": source_url, "missing": missing})
+            if pending:
+                pending_sources.append(
+                    {
+                        "source_url": source_url,
+                        "verified_law_name": policy.get("verified_law_name"),
+                        "pending_reason": policy.get("pending_reason"),
+                    }
+                )
         if incomplete_policies:
             failures.append(
                 {
@@ -595,8 +652,111 @@ class LawRepository:
             "source_class_count": len(article_classes),
             "comparison_count": len(comparisons),
             "covered_source_classes": sorted(covered_classes),
+            # Policy evidence being complete is not the same as the source being
+            # verified. Both are reported so a pending snapshot cannot pass quietly.
+            "verified_source_count": len(policies) - len(pending_sources),
+            "pending_source_count": len(pending_sources),
+            "pending_sources": sorted(pending_sources, key=lambda item: item["source_url"]),
+            "all_sources_verified": not pending_sources,
             "all_passed": not failures,
             "failures": failures,
+        }
+
+    def run_source_coverage_acceptance(self) -> dict[str, Any]:
+        """Check the corpus against what the source packs promise.
+
+        The packs advertised 消防法 and 建築技術規則 articles that the corpus never
+        held, so every correction item touching fire or compartment wording resolved to
+        nothing. This gate makes that class of drift fail loudly instead of silently
+        degrading every citation.
+        """
+        failures = []
+        articles = self.data["articles"]
+        corpus_keys = {(article["law_name"], article["article"]) for article in articles}
+
+        referenced = []
+        for pack in self._load_source_packs():
+            for unit in pack.get("source_units", []):
+                if unit.get("source_type") != "article":
+                    continue
+                parsed = _parse_article_reference(unit.get("source_title", ""))
+                if parsed is None:
+                    failures.append(
+                        {
+                            "gate": "article_reference_parseable",
+                            "reason": "source_title_is_not_an_article_reference",
+                            "details": {
+                                "pack_id": pack.get("pack_id"),
+                                "source_id": unit.get("source_id"),
+                                "source_title": unit.get("source_title"),
+                            },
+                        }
+                    )
+                    continue
+                referenced.append(
+                    {"pack_id": pack.get("pack_id"), "source_id": unit.get("source_id"), **parsed}
+                )
+
+        missing = [
+            item for item in referenced if (item["law_name"], item["article"]) not in corpus_keys
+        ]
+        if missing:
+            failures.append(
+                {
+                    "gate": "pack_articles_present_in_corpus",
+                    "reason": "source_pack_references_article_missing_from_corpus",
+                    "details": missing,
+                }
+            )
+
+        policy_urls = {policy["source_url"] for policy in self.data["source_policies"]}
+        orphan_articles = sorted(
+            {
+                f"{article['law_name']}第{article['article']}條"
+                for article in articles
+                if article["source_url"] not in policy_urls
+            }
+        )
+        if orphan_articles:
+            failures.append(
+                {
+                    "gate": "articles_have_source_policy",
+                    "reason": "article_source_url_has_no_source_policy",
+                    "details": orphan_articles,
+                }
+            )
+
+        # A pending article carrying text would be an unverified snapshot masquerading
+        # as a verified one.
+        mislabelled = sorted(
+            {
+                f"{article['law_name']}第{article['article']}條"
+                for article in articles
+                if _verification_status(article) == "pending_snapshot" and article.get("text")
+            }
+        )
+        if mislabelled:
+            failures.append(
+                {
+                    "gate": "pending_articles_carry_no_text",
+                    "reason": "pending_article_has_unverified_text",
+                    "details": mislabelled,
+                }
+            )
+
+        verified = [article for article in articles if _is_snapshot_verified(article)]
+        return {
+            "all_passed": not failures,
+            "failures": failures,
+            "article_count": len(articles),
+            "verified_article_count": len(verified),
+            "pending_article_count": len(articles) - len(verified),
+            "referenced_article_count": len(referenced),
+            "pending_articles": sorted(
+                f"{article['law_name']}第{article['article']}條"
+                for article in articles
+                if not _is_snapshot_verified(article)
+            ),
         }
 
     def list_jurisdictions(self, include_disabled: bool = False) -> list[dict[str, Any]]:
@@ -757,6 +917,7 @@ class LawRepository:
 
     def run_phase_acceptance(self) -> dict[str, Any]:
         source_policy = self.run_source_policy_acceptance()
+        source_coverage = self.run_source_coverage_acceptance()
         fixture_pipeline = self.run_fixture_pipeline_acceptance()
         jurisdiction_registry = self.run_jurisdiction_registry_acceptance()
         packaging = self.run_packaging_acceptance()
@@ -768,6 +929,7 @@ class LawRepository:
         metadata_extraction = self._run_metadata_extraction_acceptance()
         gates = {
             "p0_source_policy": source_policy["all_passed"],
+            "source_coverage": source_coverage["all_passed"],
             "procedure_stage_hitl": procedure_hitl["all_passed"],
             "g2_fixture_baseline": fixture_pipeline["all_cases_passed"],
             "metadata_extraction": metadata_extraction["all_passed"],
@@ -783,6 +945,7 @@ class LawRepository:
             "gates": gates,
             "details": {
                 "p0_source_policy": source_policy,
+                "source_coverage": source_coverage,
                 "procedure_stage_hitl": procedure_hitl,
                 "g2_fixture_baseline": {
                     "fixture_set_id": fixture_pipeline["fixture_set_id"],
@@ -2086,6 +2249,24 @@ class LawRepository:
             gate_item["human_review_required"] = True
             return gate_item
 
+        if not _is_snapshot_verified(article_meta):
+            # The corpus knows which law this is but not what it currently says, so the
+            # item carries a lead and a source link and still goes to a human.
+            gate_item["source_authority_rank"] = article_meta.get("source_authority_rank", 5)
+            gate_item["source_license_status"] = article_meta.get(
+                "source_license_status", "unknown"
+            )
+            gate_item["citation_status"] = PENDING_CITATION_STATUS
+            gate_item["source_url"] = article_meta.get("source_url")
+            gate_item["claim_supported"] = False
+            gate_item["claim_support_confidence"] = 0.0
+            gate_item["claim_support_rationale"] = (
+                f"候選法源為{article_meta.get('law_name')}第{article_meta.get('article')}條，"
+                "但條文尚未完成快照驗證，需人工核對來源後認定。"
+            )
+            gate_item["human_review_required"] = True
+            return gate_item
+
         gate_item["source_authority_rank"] = article_meta.get("source_authority_rank", 5)
         gate_item["source_license_status"] = article_meta.get(
             "source_license_status",
@@ -2340,7 +2521,14 @@ class LawRepository:
                 )
                 resolved_law_name = inferred.get("law_name") if inferred else law_name
                 resolved_article = inferred.get("article") if inferred else article
-                citation_status = "verified" if inferred else "unresolved"
+                if not inferred:
+                    citation_status = "unresolved"
+                elif _is_snapshot_verified(inferred):
+                    citation_status = "verified"
+                else:
+                    # Named the likely law but its text is unverified: give the reviewer
+                    # the candidate and the source link, without claiming a citation.
+                    citation_status = PENDING_CITATION_STATUS
                 source_authority_rank = inferred.get("source_authority_rank", 5)
                 source_license_status = inferred.get("source_license_status", "unknown")
                 item_index = len(items) + 1
@@ -2352,6 +2540,7 @@ class LawRepository:
                         "law_name": resolved_law_name,
                         "article": resolved_article,
                         "citation_status": citation_status,
+                        "source_url": inferred.get("source_url") if inferred else None,
                         "source_authority_rank": source_authority_rank,
                         "source_license_status": source_license_status,
                         "claim_supported": False,
@@ -2389,14 +2578,41 @@ class LawRepository:
                 "3",
                 ("圖說審核", "竣工查驗", "變更使用", "簡易室內裝修"),
             ),
+            # Fire and compartment markers resolve to articles that are still
+            # pending_snapshot, so they surface a candidate law and a source link
+            # for the reviewer rather than a citation.
+            (
+                "消防法",
+                "6",
+                ("消防安全設備", "滅火設備", "警報設備", "避難逃生設備", "消防檢修"),
+            ),
+            (
+                "建築技術規則建築設計施工編",
+                "79",
+                ("防火區劃", "防火牆", "防火門", "防火樓板"),
+            ),
+            (
+                "建築技術規則建築設計施工編",
+                "85-1",
+                ("防火填塞", "貫穿", "管道間", "風管"),
+            ),
         )
         candidates = []
         for candidate_law, candidate_article, markers in marker_groups:
-            if any(marker in text for marker in markers):
-                article_meta = self._find_article(candidate_law, candidate_article)
-                if article_meta:
-                    candidates.append(article_meta)
-        return candidates[0] if len(candidates) == 1 else {}
+            hits = sum(1 for marker in markers if marker in text)
+            if not hits:
+                continue
+            article_meta = self._find_article(candidate_law, candidate_article)
+            if article_meta:
+                candidates.append((hits, article_meta))
+        if not candidates:
+            return {}
+        # Prefer the most specific match: 「風管貫穿防火區劃處補防火填塞」 hits three
+        # markers of the penetration article and one of the compartment article. A real
+        # tie is still genuine ambiguity and stays unresolved for human review.
+        best = max(hits for hits, _ in candidates)
+        leaders = [meta for hits, meta in candidates if hits == best]
+        return leaders[0] if len(leaders) == 1 else {}
 
     def build_sheet_manifest(self, files: list[dict[str, Any]]) -> dict[str, Any]:
         metadata = self.extract_file_metadata(files)["files"]
@@ -2719,7 +2935,7 @@ class LawRepository:
         for idx, item in enumerate(correction_items):
             law_name = item.get("law_name")
             article = item.get("article")
-            if item.get("citation_status") == "unresolved":
+            if item.get("citation_status") in {"unresolved", PENDING_CITATION_STATUS}:
                 failing.append(idx)
                 continue
             if not isinstance(law_name, str) or not isinstance(article, str):
