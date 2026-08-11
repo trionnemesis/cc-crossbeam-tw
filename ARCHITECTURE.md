@@ -83,6 +83,15 @@ Compliance evidence is only worth something if the caller cannot write it.
 - A HITL answer counts as a confirmation only when `record_hitl_approval` bound it to a
   run, an artifact digest, and an authenticated human. Otherwise the evidence record
   reads `unapproved` and `human_review_required` stays true.
+- An approval covers the *decision* that was approved, not the question key in general.
+  The submitted answer is re-digested and compared against `ApprovalRecord.answer_digest`,
+  so an answer edited after approval — a retry, another integration writing the same key —
+  stops counting as approved.
+- A run that asked no questions reports `no_confirmation_required` rather than
+  `unapproved`. Flagging every such run would drain the signal from
+  `human_review_required`, and the worker auto-completes exactly these runs. The path is
+  only reachable when `provenance_status` is `server_verified`, so stripping the question
+  set out of tampered artifacts cannot buy it.
 - Approval recording is deliberately not an MCP tool: an MCP client is the agent, so
   letting it record its own approval would only launder an assertion into evidence. The
   secure worker calls it with the session user who actually answered.

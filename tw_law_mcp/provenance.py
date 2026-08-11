@@ -30,6 +30,7 @@ STATUS_UNBOUND = "unbound_run"
 
 CONFIRMATION_APPROVED = "server_approved"
 CONFIRMATION_UNAPPROVED = "unapproved"
+CONFIRMATION_NOT_REQUIRED = "no_confirmation_required"
 
 
 def canonical_digest(value: Any) -> str:
@@ -42,6 +43,22 @@ def canonical_digest(value: Any) -> str:
 
 def artifact_digests(artifacts: dict[str, Any]) -> dict[str, str]:
     return {name: canonical_digest(value) for name, value in artifacts.items()}
+
+
+def approved_answer_keys(
+    approvals: dict[str, "ApprovalRecord"], answers: dict[str, Any]
+) -> set[str]:
+    """Question keys whose submitted answer still matches the approved one.
+
+    An approval covers one specific decision, not the question in general. If the
+    answer is edited afterwards — a retry, another integration writing to the same
+    key — the recorded digest stops matching and the key stops counting as approved.
+    """
+    return {
+        key
+        for key, answer in answers.items()
+        if key in approvals and approvals[key].answer_digest == canonical_digest(answer)
+    }
 
 
 @dataclass(frozen=True)

@@ -3,6 +3,7 @@ import unittest
 
 from tw_law_mcp.provenance import (
     CONFIRMATION_APPROVED,
+    CONFIRMATION_NOT_REQUIRED,
     CONFIRMATION_UNAPPROVED,
     PROVENANCE_ISSUER,
     STATUS_ARTIFACTS_MODIFIED,
@@ -967,15 +968,29 @@ class ProvenanceTests(unittest.TestCase):
         self.repo = load_default_repository()
 
     def _analysis(self):
-        return self.repo.run_tw_corrections_analysis(
+        """An analysis that actually raises a HITL question.
+
+        The 「確認」 wording is what makes the item need human adjudication, which is
+        what the approval tests are about.
+        """
+        analysis = self.repo.run_tw_corrections_analysis(
             text=(
                 "發文機關：新北市政府工務局\n"
                 "主旨：室內裝修竣工查驗補正通知\n"
-                "說明一：請補竣工圖說、材料證明文件。"
+                "說明一：請補竣工圖說、材料證明文件並確認。"
             ),
             files=[{"filename": "A101_竣工圖說.pdf", "file_type": "drawing_file"}],
             procedure_stage="竣工查驗",
         )
+        assert analysis["artifacts"]["client_questions.json"]["question_count"] > 0
+        return analysis
+
+    @staticmethod
+    def _question_key(analysis):
+        """The key the run actually asked, rather than a guessed one."""
+        return analysis["artifacts"]["client_questions.json"]["client_questions"][0][
+            "question_key"
+        ]
 
     def test_analysis_issues_a_server_minted_run_bound_to_its_artifacts(self):
         analysis = self._analysis()
@@ -995,6 +1010,7 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_agent_asserted_hitl_without_a_server_approval_fails_closed(self):
         analysis = self._analysis()
+        question_key = self._question_key(analysis)
         # The agent hands back plausible audit fields it authored itself.
         forged = dict(analysis["artifacts"])
         forged["procedure_stage_signal.json"] = {
@@ -1009,13 +1025,13 @@ class ProvenanceTests(unittest.TestCase):
 
         response = self.repo.run_tw_corrections_response(
             analysis_artifacts=forged,
-            answers=[{"question_key": "review_auto-001", "answer_text": "已確認。"}],
+            answers=[{"question_key": question_key, "answer_text": "已確認。"}],
         )
         provenance = response["artifacts"]["run_meta.json"]["provenance"]
 
         self.assertEqual(provenance["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
         self.assertEqual(provenance["approved_by"], [])
-        self.assertIn("review_auto-001", provenance["unapproved_question_keys"])
+        self.assertIn(question_key, provenance["unapproved_question_keys"])
         # Tampering with the artifacts is visible on its own.
         self.assertEqual(provenance["provenance_status"], STATUS_ARTIFACTS_MODIFIED)
         self.assertIn("confirmed_by_human", provenance["ignored_caller_asserted_fields"])
@@ -1029,9 +1045,10 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_unmodified_artifacts_verify_but_still_need_a_recorded_approval(self):
         analysis = self._analysis()
+        question_key = self._question_key(analysis)
         response = self.repo.run_tw_corrections_response(
             analysis_artifacts=analysis["artifacts"],
-            answers=[{"question_key": "review_auto-001", "answer_text": "已確認。"}],
+            answers=[{"question_key": question_key, "answer_text": "已確認。"}],
         )
         provenance = response["artifacts"]["run_meta.json"]["provenance"]
 
@@ -1040,11 +1057,12 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_recorded_approval_binds_an_identity_and_upgrades_the_evidence(self):
         analysis = self._analysis()
+        question_key = self._question_key(analysis)
         run_id = analysis["run_id"]
-        answer = {"question_key": "review_auto-001", "answer_text": "已確認補材料證明。"}
+        answer = {"question_key": question_key, "answer_text": "已確認補材料證明。"}
         record = self.repo.record_hitl_approval(
             run_id=run_id,
-            question_key="review_auto-001",
+            question_key=question_key,
             approved_by="user-42",
             answer=answer,
             analysis_artifacts=analysis["artifacts"],
@@ -1066,10 +1084,11 @@ class ProvenanceTests(unittest.TestCase):
 
     def test_approval_requires_a_known_run_and_an_identity(self):
         analysis = self._analysis()
+        question_key = self._question_key(analysis)
         with self.assertRaises(ValueError):
             self.repo.record_hitl_approval(
                 run_id="run_deadbeef",
-                question_key="review_auto-001",
+                question_key=question_key,
                 approved_by="user-42",
                 answer={},
                 analysis_artifacts=analysis["artifacts"],
@@ -1077,17 +1096,106 @@ class ProvenanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.repo.record_hitl_approval(
                 run_id=analysis["run_id"],
-                question_key="review_auto-001",
+                question_key=question_key,
                 approved_by="",
                 answer={},
                 analysis_artifacts=analysis["artifacts"],
             )
 
+    def test_an_answer_edited_after_approval_loses_its_approval(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        run_id = analysis["run_id"]
+        approved = {"question_key": question_key, "answer_text": "已確認補材料證明。"}
+        self.repo.record_hitl_approval(
+            run_id=run_id,
+            question_key=question_key,
+            approved_by="user-42",
+            answer=approved,
+            analysis_artifacts=analysis["artifacts"],
+        )
+
+        def confirmation_for(answer):
+            run_meta = self.repo.run_tw_corrections_response(
+                analysis_artifacts=analysis["artifacts"], answers=[answer], run_id=run_id
+            )["artifacts"]["run_meta.json"]
+            return run_meta["provenance"], run_meta["human_review_required"]
+
+        same, same_review = confirmation_for(approved)
+        self.assertEqual(same["human_confirmation_status"], CONFIRMATION_APPROVED)
+        self.assertFalse(same_review)
+
+        # The approval covered one decision, not the question key in general.
+        swapped, swapped_review = confirmation_for(
+            {"question_key": question_key, "answer_text": "改成不必補件。"}
+        )
+        self.assertEqual(swapped["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
+        self.assertEqual(swapped["approved_by"], [])
+        self.assertEqual(swapped["unapproved_question_keys"], [question_key])
+        self.assertTrue(swapped_review)
+
+    def test_a_run_with_no_questions_does_not_need_an_approval(self):
+        analysis = self.repo.run_tw_corrections_analysis(
+            text="本案辦理圖說審核，請補申請書。", procedure_stage="圖說審核"
+        )
+        self.assertEqual(analysis["artifacts"]["client_questions.json"]["question_count"], 0)
+
+        response = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"], answers=[], run_id=analysis["run_id"]
+        )
+        run_meta = response["artifacts"]["run_meta.json"]
+
+        # Nothing was asked, so nothing is outstanding. Flagging every such run would
+        # drain the signal from human_review_required.
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], CONFIRMATION_NOT_REQUIRED
+        )
+        self.assertEqual(run_meta["provenance"]["required_question_keys"], [])
+        self.assertFalse(run_meta["human_review_required"])
+        self.assertFalse(response["human_review_required"])
+
+    def test_stripping_the_questions_does_not_buy_the_no_confirmation_path(self):
+        analysis = self._analysis()
+        self.assertGreater(analysis["artifacts"]["client_questions.json"]["question_count"], 0)
+
+        forged = copy.deepcopy(analysis["artifacts"])
+        forged["client_questions.json"] = {
+            "client_questions": [],
+            "question_count": 0,
+            "human_review_required": False,
+        }
+        forged["atomic_correction_items.json"] = []
+        run_meta = self.repo.run_tw_corrections_response(
+            analysis_artifacts=forged, answers=[], run_id=analysis["run_id"]
+        )["artifacts"]["run_meta.json"]
+
+        self.assertEqual(run_meta["provenance"]["provenance_status"], STATUS_ARTIFACTS_MODIFIED)
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], CONFIRMATION_UNAPPROVED
+        )
+        self.assertTrue(run_meta["human_review_required"])
+
+    def test_unanswered_required_question_is_not_approved(self):
+        analysis = self._analysis()
+        question_key = self._question_key(analysis)
+        run_meta = self.repo.run_tw_corrections_response(
+            analysis_artifacts=analysis["artifacts"], answers=[], run_id=analysis["run_id"]
+        )["artifacts"]["run_meta.json"]
+
+        # A required question exists and nobody answered it, so this is not the
+        # "nothing to confirm" case.
+        self.assertTrue(run_meta["provenance"]["required_question_keys"])
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], CONFIRMATION_UNAPPROVED
+        )
+        self.assertTrue(run_meta["human_review_required"])
+
     def test_unknown_run_id_cannot_be_upgraded_by_the_caller(self):
         analysis = self._analysis()
+        question_key = self._question_key(analysis)
         response = self.repo.run_tw_corrections_response(
             analysis_artifacts=analysis["artifacts"],
-            answers=[{"question_key": "review_auto-001", "answer_text": "已確認。"}],
+            answers=[{"question_key": question_key, "answer_text": "已確認。"}],
             run_id="run_" + "0" * 32,
         )
         provenance = response["artifacts"]["run_meta.json"]["provenance"]

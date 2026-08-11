@@ -501,6 +501,15 @@ class SecureWorkerTests(unittest.TestCase):
         self.assertEqual(question_count, 0)
         self.assertEqual(run[0], "completed")
         self.assertIn("response_draft.md", run[1])
+        # Nothing was asked, so this auto-completed run is not left mislabelled as
+        # awaiting a human confirmation that was never required.
+        run_meta = json.loads(run[1])["artifacts"]["run_meta.json"]
+        self.assertEqual(run_meta["provenance"]["provenance_status"], "server_verified")
+        self.assertEqual(
+            run_meta["provenance"]["human_confirmation_status"], "no_confirmation_required"
+        )
+        self.assertEqual(run_meta["provenance"]["required_question_keys"], [])
+        self.assertFalse(run_meta["human_review_required"])
 
     def test_codex_provider_is_isolated_and_does_not_inherit_secrets(self) -> None:
         provider = CodexCliProvider(timeout_seconds=5)

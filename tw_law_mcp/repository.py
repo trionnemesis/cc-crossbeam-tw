@@ -11,10 +11,12 @@ from urllib.parse import urlparse
 
 from .provenance import (
     CONFIRMATION_APPROVED,
+    CONFIRMATION_NOT_REQUIRED,
     CONFIRMATION_UNAPPROVED,
     PROVENANCE_ISSUER,
     STATUS_VERIFIED,
     ProvenanceLedger,
+    approved_answer_keys,
     canonical_digest,
 )
 
@@ -1711,37 +1713,54 @@ class LawRepository:
             run_id=bound_run_id,
         )
         approvals = self.provenance.approvals_for(bound_run_id)
-        answered_keys = {
-            str(answer.get("question_key"))
+        answer_map = {
+            str(answer.get("question_key")): answer
             for answer in (answers or [])
             if answer.get("question_key") is not None
         }
-        unapproved_keys = sorted(answered_keys - set(approvals))
-        human_confirmation_status = (
-            CONFIRMATION_APPROVED
-            if answered_keys
-            and not unapproved_keys
-            and provenance_status == STATUS_VERIFIED
-            else CONFIRMATION_UNAPPROVED
-        )
+        # Matching the digest, not just the key: an approval covers the decision that
+        # was approved, so an answer edited afterwards is no longer covered by it.
+        approved_keys = approved_answer_keys(approvals, answer_map)
+        unapproved_keys = sorted(set(answer_map) - approved_keys)
+        required_keys = set(confirmation["approval_provenance"]["required_question_keys"])
+
+        if provenance_status != STATUS_VERIFIED:
+            # The question set itself comes from the artifacts, so an unverified run
+            # cannot establish that there was nothing to confirm.
+            human_confirmation_status = CONFIRMATION_UNAPPROVED
+        elif not required_keys and not answer_map:
+            # Nothing was ever asked. Forcing review here would flag every such run and
+            # drain the signal from human_review_required.
+            human_confirmation_status = CONFIRMATION_NOT_REQUIRED
+        elif answer_map and not unapproved_keys and not (required_keys - set(answer_map)):
+            human_confirmation_status = CONFIRMATION_APPROVED
+        else:
+            human_confirmation_status = CONFIRMATION_UNAPPROVED
+
         # Evidence fails closed: an answer nobody authenticated is not a confirmation,
         # however plausible the caller made it look.
+        confirmation_settled = human_confirmation_status in {
+            CONFIRMATION_APPROVED,
+            CONFIRMATION_NOT_REQUIRED,
+        }
         evidence_confirmation_status = (
             confirmation["confirmation_status"]
-            if human_confirmation_status == CONFIRMATION_APPROVED
+            if confirmation_settled
             else CONFIRMATION_UNAPPROVED
         )
         evidence_human_review_required = (
-            confirmation["human_review_required"]
-            or human_confirmation_status != CONFIRMATION_APPROVED
+            confirmation["human_review_required"] or not confirmation_settled
         )
         provenance_block = {
             "run_id": bound_run_id,
             "issuer": PROVENANCE_ISSUER,
             "provenance_status": provenance_status,
             "human_confirmation_status": human_confirmation_status,
-            "approved_by": sorted({record.approved_by for record in approvals.values()}),
-            "approved_question_keys": sorted(approvals),
+            "approved_by": sorted(
+                {approvals[key].approved_by for key in approved_keys}
+            ),
+            "required_question_keys": sorted(required_keys),
+            "approved_question_keys": sorted(approved_keys),
             "unapproved_question_keys": unapproved_keys,
             "ignored_caller_asserted_fields": sorted(set(stripped_items) | set(stripped_stage)),
         }
@@ -2744,12 +2763,12 @@ class LawRepository:
         if human_review_required and questions.get("confirm_procedure_stage"):
             finalized_stage["human_review_required"] = True
         approvals = self.provenance.approvals_for(run_id)
-        approved_keys = sorted(set(answer_map) & set(approvals))
+        approved_keys = sorted(approved_answer_keys(approvals, answer_map))
         # What the answers imply is one thing; whether an authenticated human stands
-        # behind them is another, and only the second counts as audit evidence.
+        # behind these exact answers is another, and only the second is audit evidence.
         approval_status = (
             CONFIRMATION_APPROVED
-            if answer_map and set(answer_map).issubset(approvals)
+            if answer_map and len(approved_keys) == len(answer_map)
             else CONFIRMATION_UNAPPROVED
         )
         return {
@@ -2761,8 +2780,9 @@ class LawRepository:
                 "run_id": run_id,
                 "issuer": PROVENANCE_ISSUER,
                 "approval_status": approval_status,
+                "required_question_keys": sorted(questions),
                 "approved_question_keys": approved_keys,
-                "unapproved_question_keys": sorted(set(answer_map) - set(approvals)),
+                "unapproved_question_keys": sorted(set(answer_map) - set(approved_keys)),
                 "approved_by": sorted({approvals[key].approved_by for key in approved_keys}),
             },
             "unanswered_questions": unanswered_questions,
