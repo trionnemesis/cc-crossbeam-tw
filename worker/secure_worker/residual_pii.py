@@ -65,5 +65,30 @@ RESIDUAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 )
 
 
+class ResidualPiiBlocked(ValueError):
+    """Raised when the independent detector still sees sensitive classes.
+
+    ``str()`` is a stable, non-revealing code because processing stores it in the
+    private database and surfaces it to the operator.
+    """
+
+    def __init__(self, classes: list[str]):
+        super().__init__("RESIDUAL_PII_BLOCKED")
+        self.classes = classes
+
+
 def find_residual_sensitive_classes(text: str) -> list[str]:
     return [name for name, pattern in RESIDUAL_PATTERNS if pattern.search(text)]
+
+
+def assert_no_residual_pii(text: str) -> None:
+    """Fail closed if the independent detector still sees a sensitive class.
+
+    Callers use this before letting masked text reach anything durable or
+    visible. Raising is the point: a class this detector recognises but
+    ``masking.PATTERNS`` does not cover must stop the run rather than be
+    stored and rendered as if masking had handled it.
+    """
+    residual = find_residual_sensitive_classes(text)
+    if residual:
+        raise ResidualPiiBlocked(residual)
