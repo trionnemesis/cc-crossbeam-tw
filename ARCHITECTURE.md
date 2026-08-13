@@ -144,6 +144,21 @@ grandchild survives it.
 
 No transition may skip `scanning` or `masking`. `rejected` and `deleted` are terminal.
 
+`masking` runs two passes with separate rule sets. `masking.PATTERNS` decides what
+gets replaced; `residual_pii.RESIDUAL_PATTERNS` then takes an independent second
+look and rejects the upload with `RESIDUAL_PII_BLOCKED` if it still recognises a
+sensitive class. Checking the masker against its own rules could only ever find
+substitution bugs, never a class the rules do not cover, so the second pass is
+deliberately a different — and more eager — set of patterns: a false positive
+costs a re-upload, a false negative reaches storage and the case UI.
+
+That second pass runs on every upload, not only when the model is enabled. The
+model is off by default, and the masked text is written to disk, embedded in the
+analysis artifacts and rendered in the case UI regardless of whether a model ever
+sees it. This is also what makes the `data_governance` gate's
+`pii_detection_status` an observation rather than an assertion — by the time the
+gate reads it, detection has actually run and found nothing.
+
 ### Case
 
 `draft -> awaiting_upload -> processing -> awaiting_review -> completed | failed -> deleted`

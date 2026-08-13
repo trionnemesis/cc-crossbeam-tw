@@ -106,6 +106,33 @@ bytes out of the Next.js process.
 - Run `npm run acceptance:upload` with only the synthetic canary fixture.
 - Check `codex login status`; never print the credential file.
 
+### `RESIDUAL_PII_BLOCKED` rejections
+
+An upload rejected with this code was masked, then still tripped the independent
+detector in `residual_pii.py`, so nothing was persisted: no sanitized file, no
+`analysis_run`, no artifact row. The upload is `rejected` and terminal.
+
+This is a working fail-closed, not an outage. It means the document carried a
+sensitive shape that `masking.PATTERNS` does not cover — treat it as a masking gap
+to fix, not a rejection to override. It fires with the model disabled too, since
+the masked text is stored and rendered either way.
+
+To diagnose without handling the raw file, reproduce with a synthetic string of the
+same shape:
+
+```sh
+python3 -c "
+from worker.secure_worker.masking import mask_sensitive_text
+from worker.secure_worker.residual_pii import find_residual_sensitive_classes
+sample = '證件 AB1234567 已附。'   # a synthetic stand-in, never the real value
+masked = mask_sensitive_text(sample)
+print(masked.text, find_residual_sensitive_classes(masked.text))
+"
+```
+
+The detector's class names are safe to log; the matched text is not, and the
+exception deliberately carries only the class list.
+
 ## Law corpus verification
 
 Some articles are in the corpus as references without their text. They are marked
