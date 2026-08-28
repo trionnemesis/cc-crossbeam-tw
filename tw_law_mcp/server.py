@@ -102,7 +102,7 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "get_local_rule",
-        "description": "Get lifecycle-aware structured local-law metadata; inactive, pending, ambiguous, or historically indeterminate rules fail closed.",
+        "description": "Get lifecycle-aware structured local-law metadata; inactive, pending, ambiguous, malformed, missing-lifecycle, or historically indeterminate rules fail closed.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -556,7 +556,18 @@ class TwLawMcpServer:
             and record.get("rule_name") == rule_name
         ]
         if not matching_records:
-            return self.repo.get_local_rule(normalized_jurisdiction, rule_name, as_of_date)
+            legacy = self.repo.get_local_rule(normalized_jurisdiction, rule_name, as_of_date)
+            if not legacy.get("exists"):
+                return legacy
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "lifecycle_record_missing",
+                "required_documents": [],
+            }
 
         identifiers = sorted(
             {
