@@ -30,6 +30,15 @@ def _parse_iso_date(value: str | None, field: str, failures: list[str], source_i
         return None
 
 
+def _safe_iso_date(value: Any) -> date | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def load_local_rule_records(data_dir: Path = DATA_DIR) -> list[dict[str, Any]]:
     if not data_dir.exists():
         return []
@@ -87,8 +96,8 @@ def validate_local_rule_record(record: dict[str, Any]) -> list[str]:
     for field in ("promulgated_at", "effective_from", "effective_to", "amended_at"):
         _parse_iso_date(record.get(field), field, failures, source_id)
 
-    effective_from = _parse_iso_date(record.get("effective_from"), "effective_from", [], source_id)
-    effective_to = _parse_iso_date(record.get("effective_to"), "effective_to", [], source_id)
+    effective_from = _safe_iso_date(record.get("effective_from"))
+    effective_to = _safe_iso_date(record.get("effective_to"))
     if effective_from and effective_to and effective_to < effective_from:
         failures.append(f"{source_id}: effective_to precedes effective_from")
 
@@ -189,8 +198,24 @@ def select_local_rule_version(
 
     try:
         target = date.fromisoformat(as_of_date)
-    except ValueError:
+    except (TypeError, ValueError):
         return VersionSelection(False, "invalid_as_of_date", True).as_dict()
+
+    malformed_records: list[str] = []
+    for record in matches:
+        for field in ("effective_from", "effective_to"):
+            raw = record.get(field)
+            if raw in (None, ""):
+                continue
+            if _safe_iso_date(raw) is None:
+                malformed_records.append(f"{record.get('source_id')}:{field}")
+    if malformed_records:
+        return VersionSelection(
+            False,
+            "invalid_record_date",
+            True,
+            candidates=tuple(sorted(malformed_records)),
+        ).as_dict()
 
     unknown_effective = [record for record in active if not record.get("effective_from")]
     if unknown_effective:
@@ -205,12 +230,10 @@ def select_local_rule_version(
     for record in matches:
         if record.get("legal_status") not in {"active", "abolished", "superseded"}:
             continue
-        start_raw = record.get("effective_from")
-        if not isinstance(start_raw, str):
+        start = _safe_iso_date(record.get("effective_from"))
+        if start is None:
             continue
-        start = date.fromisoformat(start_raw)
-        end_raw = record.get("effective_to")
-        end = date.fromisoformat(end_raw) if isinstance(end_raw, str) and end_raw else None
+        end = _safe_iso_date(record.get("effective_to"))
         if start <= target and (end is None or target <= end):
             candidates.append(record)
 
@@ -272,3 +295,20 @@ def run_local_rule_lifecycle_acceptance(data_dir: Path = DATA_DIR) -> dict[str, 
         "current_ntpc_selection": ntpc_current,
         "historical_ntpc_selection": ntpc_historical,
     }
+
+
+def augment_phase_acceptance(base_result: dict[str, Any]) -> dict[str, Any]:
+    """Add local-rule lifecycle acceptance to an aggregate phase result.
+
+    CLI and MCP both call this helper so transport choice cannot bypass the lifecycle gate.
+    """
+    lifecycle = run_local_rule_lifecycle_acceptance()
+    result = dict(base_result)
+    gates = dict(base_result.get("gates", {}))
+    details = dict(base_result.get("details", {}))
+    gates["local_rule_lifecycle"] = lifecycle["all_passed"]
+    details["local_rule_lifecycle"] = lifecycle
+    result["gates"] = gates
+    result["details"] = details
+    result["all_passed"] = bool(base_result.get("all_passed")) and lifecycle["all_passed"]
+    return result
