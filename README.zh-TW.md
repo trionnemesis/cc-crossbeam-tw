@@ -8,7 +8,7 @@
 
 這個 repository 面向建築師、室內裝修業者與代辦／行政窗口。`tw-law-mcp` 將法規查詢、程序分流、文件檢核、補正拆解與稽核證據整理成 deterministic、可追溯的 MCP tools。資料不足、法規版本不明或涉及專業裁量時，工具會 fail closed 並要求人工確認；它不是法律意見、合規保證或專業簽證系統。
 
-[English README](./README.md) · [公開 Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) · [架構說明](./ARCHITECTURE.md) · [驗收證據](./ACCEPTANCE.md) · [v0.5.0 release notes](./docs/releases/v0.5.0.md)
+[English README](./README.md) · [公開 Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) · [架構說明](./ARCHITECTURE.md) · [驗收證據](./ACCEPTANCE.md) · [v0.5.1 release notes](./docs/releases/v0.5.1.md)
 
 ## 目錄
 
@@ -37,6 +37,8 @@
 
 `0.5.0` 開始把「法律事件日期」與「資料處理日期」分開管理，避免把抓取日或人工驗證日誤當成發布、生效或修正日期。
 
+`0.5.1` 補上最後一個 lookup 邊界：MCP `get_local_rule` 會先經過 canonical lifecycle record 選版，通過後才允許回傳 legacy compatibility fields。因此規則若為 `abolished`、`superseded`、`pending_reverification`，或存在版本重疊、日期格式錯誤、歷史生效區間無法判定等情況，都不能再從舊 corpus projection 繞過 fail-closed。Runtime `__version__` 與 Python distribution metadata 也會保持一致。
+
 第一個正式套用 lifecycle contract 的地方來源是新北市官方識別碼 `C0170020`。目前可驗證的發布日期為 `2011-04-25`；repository 沒有足夠證據確認 `effective_from` 或修正日期，因此這些欄位保持未知。若使用者指定歷史 `as_of_date`，系統會 fail closed，不會用抓取日期補完法律時點。
 
 地方來源分成兩種證據表示：
@@ -55,7 +57,7 @@ Lifecycle 狀態支援：
 - `superseded`
 - `pending_reverification`
 
-遇到未知生效日、版本重疊、已廢止來源、pending reverification 或無法唯一選定版本時，一律要求人工確認。
+遇到未知生效日、版本重疊、已廢止來源、pending reverification、格式錯誤或無法唯一選定版本時，一律要求人工確認。
 
 ## 怎麼運作
 
@@ -106,7 +108,7 @@ GitHub Pages 是靜態文件站，不是實際部署的 Secure Web instance。
 | **送件檢核** | 新北市送件文件 packet、缺件清單、sheet/file manifest 與 source-bound references。 |
 | **補正處理** | 已遮罩文件解析、atomic correction items、回覆草稿輸入與專業確認 packet。 |
 | **專業領域 routing** | 消防設備、防火區劃、避難與材料文件的 evidence prompts。 |
-| **地方法規 lifecycle** | active／abolished／superseded／pending_reverification、版本選取與 historical as-of fail-closed。 |
+| **地方法規 lifecycle** | current/historical lookup 先過 lifecycle 選版；inactive、pending、ambiguous、malformed 或 indeterminate 一律 fail closed。 |
 | **稽核與溯源** | law snapshots、source policy、authority rank、license/update status、source locator、hash、gate results 與人工確認狀態。 |
 
 目前 server 宣告 38 個 MCP tools。canonical tool surface 見 [`tw_law_mcp/server.py`](./tw_law_mcp/server.py)；場景索引見 [`docs/tw-scenario-feature-matrix.md`](./docs/tw-scenario-feature-matrix.md)。
@@ -121,7 +123,7 @@ GitHub Pages 是靜態文件站，不是實際部署的 Secure Web instance。
 | **Quarantine** | raw upload 必須經 scan、validation、masking 才能供下游使用。 |
 | **Model** | 只有最小必要 sanitized fields 可跨越 model boundary。 |
 | **Domain** | 台灣程序、來源與 lifecycle 邏輯留在 Python `tw_law_mcp`，web layer 不複製法律判斷。 |
-| **不確定性** | 缺證據、未知生效日、pending source change、低信心、專業判斷與 unsupported claim 一律 fail closed。 |
+| **不確定性** | 缺證據、未知生效日、inactive/pending/ambiguous source、低信心、專業判斷與 unsupported claim 一律 fail closed。 |
 | **Production** | 未具 approved adapters／credentials 前，cloud mode 拒絕 local auth/storage/DB/in-process jobs/local Codex provider。 |
 
 這個原型不會判定案件合法／違法／違建，不會出具法律意見、合規保證、專業簽證或主管機關必然核准的承諾，也不會自行驗證材料真偽或消防設計結論。
@@ -173,10 +175,10 @@ python3 -m worker.secure_worker.server
 
 | 範圍 | 目前狀態 |
 | --- | --- |
-| Domain core | `0.5.0`；新北市室內裝修已啟用；其他 jurisdiction fail closed。 |
-| Local-rule lifecycle | NTPC `C0170020` active；發布日 `2011-04-25` 已記錄；`effective_from` 未有足夠證據，因此歷史 as-of 查詢 fail closed。Point 7～11 已 normalized + hash check。 |
+| Domain core | `0.5.1`；新北市室內裝修已啟用；其他 jurisdiction fail closed；runtime 與 distribution version 已同步。 |
+| Local-rule lifecycle | NTPC `C0170020` active；發布日 `2011-04-25` 已記錄；`effective_from` 未有足夠證據，因此歷史 as-of 查詢 fail closed。MCP `get_local_rule` 已受 lifecycle 約束；Point 7～11 已 normalized + hash check。 |
 | MCP packaging | Standalone stdio JSON-RPC subset first；Codex 與 Claude Code 維持 thin wrappers。 |
-| Workflow coverage | source policy、procedure/HITL、data layout、adapters、scenario tools、fixture pipeline、two-stage flow 與 local-rule lifecycle acceptance。 |
+| Workflow coverage | source policy、procedure/HITL、data layout、adapters、scenario tools、fixture pipeline、two-stage flow、lifecycle-aware lookup 與 local-rule lifecycle acceptance。 |
 | Fixture evidence | 12 份 synthetic de-identified cases、84 個 atomic correction items；僅驗證 schema/gates/HITL，不支撐真實案件 claim。 |
 | Secure Web | Local/single-user pilot 已涵蓋 identity、案件授權、direct quarantine upload、masking、Codex-auth worker analysis、HITL、audit 與 verified deletion。 |
 | 仍需完成 | TPE verified lifecycle pack、TYC verified evidence、官方來源異動監測、#16 三條中央法規 pending snapshots、公開 Google/LINE acceptance、獨立 sandbox PDF/image parser。 |
@@ -190,8 +192,8 @@ python3 -m worker.secure_worker.server
 | [`worker/`](./worker/) | Secure upload、masking、domain processing 與 model-provider boundary。 |
 | [`web/`](./web/) | Next.js Secure Web pilot。 |
 | [`scripts/`](./scripts/) | stdio entrypoint、snapshots 與 acceptance runners。 |
-| [`tests/`](./tests/) | Python domain/worker/lifecycle tests。 |
-| [`docs/releases/v0.5.0.md`](./docs/releases/v0.5.0.md) | 本版本 release notes。 |
+| [`tests/`](./tests/) | Python domain/worker/lifecycle/MCP lookup tests。 |
+| [`docs/releases/v0.5.1.md`](./docs/releases/v0.5.1.md) | 最新 hotfix release notes。 |
 | [`ACCEPTANCE.md`](./ACCEPTANCE.md) | 驗收證據與剩餘 gates。 |
 
 ## 常見問題
@@ -203,6 +205,10 @@ python3 -m worker.secure_worker.server
 ### 為什麼知道某個地方規範目前存在，歷史 `as_of_date` 還是會失敗？
 
 官方來源可以證明目前發布狀態與部分發布資訊，不代表 repository 已掌握完整歷史生效區間。若 `effective_from` 沒有可驗證證據，Crossbeam TW 不會拿抓取日期代替，而是停止自動判定並要求人工確認。
+
+### 如果官方地方規範進入 `pending_reverification` 會怎麼處理？
+
+MCP lookup 不會回傳可操作的 required documents，而是回 `exists=false` 並要求人工確認。舊 compatibility projection 只有在 lifecycle selector 已確認目前版本可用後才會被讀取。
 
 ### 可以上傳客戶 PDF 或圖說嗎？
 
