@@ -189,18 +189,6 @@ def select_local_rule_version(
         ids = tuple(str(record.get("source_id")) for record in matches)
         return VersionSelection(False, "pending_reverification", True, candidates=ids).as_dict()
 
-    active = [record for record in matches if record.get("legal_status") == "active"]
-    if as_of_date is None:
-        if len(active) == 1:
-            return VersionSelection(True, "current_active", False, record=active[0]).as_dict()
-        status = "ambiguous_active_versions" if active else "no_active_version"
-        return VersionSelection(False, status, True, candidates=tuple(str(r.get("source_id")) for r in active)).as_dict()
-
-    try:
-        target = date.fromisoformat(as_of_date)
-    except (TypeError, ValueError):
-        return VersionSelection(False, "invalid_as_of_date", True).as_dict()
-
     malformed_records: list[str] = []
     for record in matches:
         for field in ("effective_from", "effective_to"):
@@ -216,6 +204,18 @@ def select_local_rule_version(
             True,
             candidates=tuple(sorted(malformed_records)),
         ).as_dict()
+
+    active = [record for record in matches if record.get("legal_status") == "active"]
+    if as_of_date is None:
+        if len(active) == 1:
+            return VersionSelection(True, "current_active", False, record=active[0]).as_dict()
+        status = "ambiguous_active_versions" if active else "no_active_version"
+        return VersionSelection(False, status, True, candidates=tuple(str(r.get("source_id")) for r in active)).as_dict()
+
+    try:
+        target = date.fromisoformat(as_of_date)
+    except (TypeError, ValueError):
+        return VersionSelection(False, "invalid_as_of_date", True).as_dict()
 
     unknown_effective = [record for record in active if not record.get("effective_from")]
     if unknown_effective:
