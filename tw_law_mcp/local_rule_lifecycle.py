@@ -238,7 +238,20 @@ def select_local_rule_version(
             candidates.append(record)
 
     if len(candidates) == 1:
-        return VersionSelection(True, "effective_version", False, record=candidates[0]).as_dict()
+        candidate = candidates[0]
+        # Historical lifecycle metadata may identify an inactive version, but the
+        # legacy compatibility projection exposed by MCP is not versioned. Returning
+        # that projection for a superseded/abolished lifecycle record would mix old
+        # status with current operative fields, so fail closed until compatibility
+        # fields are versioned alongside lifecycle records.
+        if candidate.get("legal_status") != "active":
+            return VersionSelection(
+                False,
+                "historical_projection_unavailable",
+                True,
+                candidates=(str(candidate.get("source_id")),),
+            ).as_dict()
+        return VersionSelection(True, "effective_version", False, record=candidate).as_dict()
     if len(candidates) > 1:
         return VersionSelection(
             False,
