@@ -503,7 +503,11 @@ class LawRepositoryTests(unittest.TestCase):
         self.assertTrue(acceptance["gate_failures"])
         self.assertEqual(
             {failure["gate"] for failure in acceptance["gate_failures"]},
-            {"claim_supported"},
+            # citation_exists: fixture items describing New Taipei procedure
+            # content (points scattered across the local rule, not a single
+            # verified article) now correctly stay unresolved instead of
+            # citing a fabricated exact snapshot (issue #18 P0).
+            {"claim_supported", "citation_exists"},
         )
         self.assertFalse(acceptance["all_cases_passed"])
         self.assertTrue(all(case["audit_status"] == "failed" for case in acceptance["case_results"]))
@@ -566,13 +570,22 @@ class LawRepositoryTests(unittest.TestCase):
 
     def test_normalize_atomic_items_binds_only_unambiguous_corpus_markers(self):
         normalized = self.repo.normalize_atomic_correction_items(
-            {"sections": {"說明": ["請補申請書。", "請補室內裝修圖說審核資料。"]}}
+            {
+                "sections": {
+                    "說明": [
+                        "請補申請書。",
+                        "請補室內裝修圖說並確認供公眾使用範圍。",
+                    ]
+                }
+            }
         )
 
         resolved, ambiguous = normalized["atomic_correction_items"]
         self.assertEqual(resolved["law_name"], "建築物室內裝修管理辦法")
         self.assertEqual(resolved["article"], "23")
         self.assertEqual(resolved["citation_status"], "verified")
+        # "室內裝修圖說" and "供公眾使用" hit two different laws' markers in equal
+        # measure; a real tie stays unresolved rather than guessing between them.
         self.assertIsNone(ambiguous["law_name"])
         self.assertEqual(ambiguous["citation_status"], "unresolved")
 
@@ -869,8 +882,11 @@ class SourceCoverageTests(unittest.TestCase):
         self.assertTrue(coverage["all_passed"])
         self.assertEqual(coverage["failures"], [])
         self.assertEqual(coverage["referenced_article_count"], 5)
-        self.assertEqual(coverage["verified_article_count"], 3)
-        self.assertEqual(coverage["pending_article_count"], 3)
+        # The NTPC "article 3" entry was a fabricated citation (issue #18 P0):
+        # its text was a source-wide summary, not that point's exact wording.
+        # It now carries a pending lead instead of a false verified snapshot.
+        self.assertEqual(coverage["verified_article_count"], 2)
+        self.assertEqual(coverage["pending_article_count"], 4)
 
     def test_an_article_a_pack_references_but_the_corpus_lacks_fails_the_gate(self):
         coverage = self._repo_without("消防法").run_source_coverage_acceptance()
@@ -1201,6 +1217,181 @@ class ProvenanceTests(unittest.TestCase):
         provenance = response["artifacts"]["run_meta.json"]["provenance"]
         self.assertEqual(provenance["provenance_status"], STATUS_UNKNOWN_RUN)
         self.assertEqual(provenance["human_confirmation_status"], CONFIRMATION_UNAPPROVED)
+
+
+class LocalRuleLifecycleTests(unittest.TestCase):
+    """Issue #18 PR A/PR B: local-rule lifecycle contract and NTPC pack fixtures."""
+
+    def setUp(self):
+        self.repo = load_default_repository()
+
+    def _local_rule_unit(self, source_id):
+        for unit in self.repo.data["local_rule_units"]:
+            if unit["source_id"] == source_id:
+                return copy.deepcopy(unit)
+        raise AssertionError(f"no such local_rule_unit: {source_id}")
+
+    # ---- PR A: lifecycle acceptance gate -------------------------------
+
+    def test_local_rule_lifecycle_acceptance_passes_on_the_fixed_corpus(self):
+        acceptance = self.repo.run_local_rule_lifecycle_acceptance()
+
+        self.assertTrue(acceptance["all_passed"])
+        self.assertEqual(acceptance["failures"], [])
+        self.assertGreater(acceptance["record_count"], 0)
+
+    def test_lifecycle_gate_rejects_a_retrieved_at_that_copies_the_legal_date(self):
+        data = copy.deepcopy(self.repo.data)
+        rule = data["local_rules"][0]
+        # Reproduces the exact P0 bug: every date field collapsed onto one value.
+        rule["retrieved_at"] = rule["promulgated_at"]
+        acceptance = LawRepository(data).run_local_rule_lifecycle_acceptance()
+
+        self.assertFalse(acceptance["all_passed"])
+        reasons = {failure["reason"] for failure in acceptance["failures"]}
+        self.assertIn("retrieved_at_copies_legal_date", reasons)
+
+    def test_lifecycle_gate_rejects_snapshot_verified_without_hash_or_locator(self):
+        data = copy.deepcopy(self.repo.data)
+        unit = data["local_rule_units"][0]
+        unit["representation"] = "snapshot_verified"
+        unit["source_locator"] = None
+        acceptance = LawRepository(data).run_local_rule_lifecycle_acceptance()
+
+        self.assertFalse(acceptance["all_passed"])
+        reasons = {failure["reason"] for failure in acceptance["failures"]}
+        self.assertIn("snapshot_verified_missing_hash_or_locator", reasons)
+
+    def test_lifecycle_gate_rejects_a_normalized_requirement_hash_that_does_not_match_its_text(self):
+        data = copy.deepcopy(self.repo.data)
+        unit = data["local_rule_units"][0]
+        unit["text"] = unit["text"] + "（未同步更新 hash 的編輯）"
+        acceptance = LawRepository(data).run_local_rule_lifecycle_acceptance()
+
+        self.assertFalse(acceptance["all_passed"])
+        reasons = {failure["reason"] for failure in acceptance["failures"]}
+        self.assertIn("hash_does_not_match_recorded_text", reasons)
+
+    def test_lifecycle_gate_rejects_an_unresolved_version_overlap(self):
+        data = copy.deepcopy(self.repo.data)
+        duplicate = copy.deepcopy(data["local_rules"][0])
+        data["local_rules"].append(duplicate)
+        acceptance = LawRepository(data).run_local_rule_lifecycle_acceptance()
+
+        self.assertFalse(acceptance["all_passed"])
+        reasons = {failure["reason"] for failure in acceptance["failures"]}
+        self.assertIn("multiple_active_records_for_same_law", reasons)
+
+    # ---- PR A: fail-closed version selection ---------------------------
+
+    def test_select_local_rule_lifecycle_resolves_the_active_ntpc_rule(self):
+        selection = self.repo.select_local_rule_lifecycle(
+            jurisdiction="ntpc", law_id="ntpc-interior-renovation-review-rules"
+        )
+
+        self.assertTrue(selection["exists"])
+        self.assertEqual(selection["selected"]["legal_status"], "active")
+
+    def test_select_local_rule_lifecycle_excludes_an_abolished_record(self):
+        data = copy.deepcopy(self.repo.data)
+        abolished = copy.deepcopy(data["local_rules"][0])
+        abolished["law_id"] = "ntpc-interior-renovation-review-rules-old"
+        abolished["legal_status"] = "abolished"
+        data["local_rules"].append(abolished)
+        selection = LawRepository(data).select_local_rule_lifecycle(
+            jurisdiction="ntpc", law_id="ntpc-interior-renovation-review-rules-old"
+        )
+
+        self.assertFalse(selection["exists"])
+        self.assertEqual(selection["diff"], "no_effective_version")
+
+    def test_select_local_rule_lifecycle_reports_overlap_instead_of_guessing(self):
+        data = copy.deepcopy(self.repo.data)
+        duplicate = copy.deepcopy(data["local_rules"][0])
+        data["local_rules"].append(duplicate)
+        selection = LawRepository(data).select_local_rule_lifecycle(
+            jurisdiction="ntpc", law_id="ntpc-interior-renovation-review-rules"
+        )
+
+        self.assertFalse(selection["exists"])
+        self.assertEqual(selection["diff"], "version_overlap")
+        self.assertTrue(selection["human_review_required"])
+
+    def test_select_local_rule_lifecycle_fails_closed_with_no_matching_law(self):
+        selection = self.repo.select_local_rule_lifecycle(
+            jurisdiction="ntpc", law_id="no-such-law"
+        )
+
+        self.assertFalse(selection["exists"])
+        self.assertEqual(selection["diff"], "not_found")
+
+    # ---- PR B: NTPC point-level requirement units ----------------------
+
+    def test_list_local_rule_units_filters_by_procedure_stage(self):
+        units = self.repo.list_local_rule_units(jurisdiction="ntpc", procedure_stage="簡易室內裝修")
+
+        source_ids = {unit["source_id"] for unit in units}
+        self.assertIn("ntpc-interior-review-rule-point-8", source_ids)
+        self.assertNotIn("ntpc-interior-review-rule-point-9", source_ids)
+
+    def test_point_8_carries_the_official_canonical_term_over_the_system_alias(self):
+        point_8 = self._local_rule_unit("ntpc-interior-review-rule-point-8")
+
+        self.assertEqual(point_8["canonical_official_term"], "簡易申報")
+        self.assertIn("簡易室內裝修", point_8["aliases"])
+
+    def test_submission_packet_surfaces_the_six_month_drawing_correction_deadline(self):
+        packet = self.repo.build_ntpc_submission_packet("圖說審核", "ntpc")
+
+        deadlines = {item["item"]: item for item in packet["deadlines"]}
+        self.assertIn("圖說補正", deadlines)
+        self.assertEqual(deadlines["圖說補正"]["duration_human"], "六個月")
+        self.assertFalse(deadlines["圖說補正"]["extension_allowed"])
+
+    def test_submission_packet_surfaces_the_three_month_completion_correction_deadline(self):
+        packet = self.repo.build_ntpc_submission_packet("竣工查驗", "ntpc")
+
+        deadlines = {item["item"]: item for item in packet["deadlines"]}
+        self.assertIn("竣工查驗補正", deadlines)
+        self.assertEqual(deadlines["竣工查驗補正"]["duration_human"], "三個月")
+        # Construction gets one extension of unconfirmed length; correction does not.
+        self.assertIn("施工期限", deadlines)
+        self.assertTrue(deadlines["施工期限"]["extension_allowed"])
+        self.assertEqual(deadlines["施工期限"]["extension_count_limit"], 1)
+        self.assertFalse(deadlines["竣工查驗補正"]["extension_allowed"])
+
+    def test_submission_packet_lists_fire_equipment_change_as_conditional_not_assumed(self):
+        packet = self.repo.build_ntpc_submission_packet("竣工查驗", "ntpc")
+
+        conditional_labels = {
+            item["label"] for item in packet["checklist"] if item["status"] == "conditional"
+        }
+        self.assertIn("消防安全設備變更相關文件（設備有變更時）", conditional_labels)
+        self.assertIn("妨礙或破壞消防安全設備之改善或復原文件（涉及妨礙或破壞時）", conditional_labels)
+        self.assertTrue(packet["escalation_conditions"])
+
+    def test_submission_packet_lists_existing_material_evidence_as_conditional(self):
+        packet = self.repo.build_ntpc_submission_packet("圖說審核", "ntpc")
+
+        conditional_labels = {
+            item["label"] for item in packet["checklist"] if item["status"] == "conditional"
+        }
+        self.assertIn("既有材料援用證明文件（援用既有材料時）", conditional_labels)
+
+        material = self.repo.check_material_evidence(
+            material_records=[{"name": "既有材料援用證明", "location": "", "certificate_no": ""}]
+        )
+        self.assertEqual(material["evidence_status"], "evidence_incomplete")
+
+    def test_submission_packet_lists_simplified_declaration_completion_documents_as_conditional(self):
+        packet = self.repo.build_ntpc_submission_packet("簡易室內裝修", "ntpc")
+
+        labels = packet["checklist_labels"]
+        self.assertIn("簡易申報施工前備查文件", labels)
+        conditional_labels = {
+            item["label"] for item in packet["checklist"] if item["status"] == "conditional"
+        }
+        self.assertIn("簡易申報完工後應備文件（依申報項目項別而定）", conditional_labels)
 
 
 if __name__ == "__main__":

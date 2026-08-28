@@ -108,6 +108,50 @@ TOOL_SCHEMAS: list[JSON] = [
         },
     },
     {
+        "name": "list_local_rule_units",
+        "description": (
+            "List point-level local-rule requirement units (required/conditional "
+            "documents, deadlines, escalation notes) filtered by jurisdiction, "
+            "law_id, and/or procedure_stage."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "jurisdiction": {"type": "string"},
+                "law_id": {"type": "string"},
+                "procedure_stage": {"type": "string"},
+            },
+        },
+    },
+    {
+        "name": "select_local_rule_lifecycle",
+        "description": (
+            "Fail-closed local-rule version selection by law identity (not just "
+            "name): excludes abolished/superseded/pending_reverification records, "
+            "and reports version_overlap instead of guessing when more than one "
+            "candidate would otherwise apply as of the given date."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "jurisdiction": {"type": "string"},
+                "law_id": {"type": "string"},
+                "official_identifier": {"type": "string"},
+                "as_of_date": {"type": "string"},
+            },
+            "required": ["jurisdiction"],
+        },
+    },
+    {
+        "name": "run_local_rule_lifecycle_acceptance",
+        "description": (
+            "Verify the local-rule lifecycle contract: date-field semantics, "
+            "snapshot_verified/normalized_requirement consistency with hash and "
+            "locator, legal_status validity, and unresolved version overlaps."
+        ),
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "detect_illegal_construction_reference",
         "description": "Detect whether files or text only imply illegal-construction indicators for manual routing.",
         "inputSchema": {
@@ -500,6 +544,9 @@ class TwLawMcpServer:
             "verify_citation": self.repo.verify_citation,
             "check_claim_support": self.repo.check_claim_support,
             "get_local_rule": self.repo.get_local_rule,
+            "list_local_rule_units": self.repo.list_local_rule_units,
+            "select_local_rule_lifecycle": self.repo.select_local_rule_lifecycle,
+            "run_local_rule_lifecycle_acceptance": self.repo.run_local_rule_lifecycle_acceptance,
             "detect_illegal_construction_reference": self.repo.detect_illegal_construction_reference,
             "get_source_policy": self.repo.get_source_policy,
             "compare_source_policies": self.repo.compare_source_policies,

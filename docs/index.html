@@ -339,11 +339,15 @@ npm run dev</code></pre>
             </article>
             <article class="card">
               <h3>5. Jurisdiction registry</h3>
-              <p>新北市 enabled；台北、桃園 stubs fail closed，不主動作答。</p>
+              <p>新北市 enabled；台北、桃園 stubs fail closed，不主動作答，也不由其他縣市規則推導。</p>
             </article>
             <article class="card">
               <h3>6. MCP packaging</h3>
               <p>Standalone MCP server first，Codex 與 Claude Code 維持 thin wrappers。</p>
+            </article>
+            <article class="card">
+              <h3>7. Local-rule lifecycle</h3>
+              <p>新北市地方規範改用 legal_status／promulgated_at／effective_from／effective_to 分離法律事件日期與資料處理日期；as_of_date 查詢在 unknown、版本重疊或已廢止時一律 fail closed。</p>
             </article>
           </div>
           <p class="section-lead">

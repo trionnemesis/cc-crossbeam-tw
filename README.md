@@ -195,6 +195,7 @@ This is a **public prototype**, not a production compliance product.
 | Domain core | `0.4.1`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
 | MCP packaging | Standalone stdio JSON-RPC subset first; Codex and Claude Code remain thin wrappers. |
 | Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, and two-stage flow skeleton. |
+| Local-rule lifecycle | New Taipei's local rule separates legal-event dates (`promulgated_at`/`effective_from`/`effective_to`) from processing dates (`retrieved_at`/`verified_at`); `as_of_date` lookups fail closed on unknown dates, version overlap, or abolished/superseded status. Taipei and Taoyuan stay disabled until an equally verified local pack exists. |
 | Fixture evidence | 12 synthetic de-identified cases and 84 atomic correction items validate schema, gates, and HITL contract. They do not support real-case claims. |
 | Secure Web | Local and single-user pilot paths cover identity, case authorization, direct quarantine upload, masking, Codex-auth worker analysis, HITL, audit, and verified deletion. |
 | Still required | Approved real de-identified cases, live official-source ingestion/refresh, public Google/LINE acceptance, and a separately sandboxed PDF/image parser. |

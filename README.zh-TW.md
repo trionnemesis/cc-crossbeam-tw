@@ -193,6 +193,7 @@ Runtime mode、callback 設定、private storage 與 external-credential gates �
 | Domain core | `0.4.1`；新北市室內裝修已啟用；其他 jurisdiction fail closed。 |
 | MCP packaging | 先做 standalone stdio JSON-RPC subset；Codex 與 Claude Code 維持 thin wrappers。 |
 | Workflow coverage | 已完成 1～6 組與 Phase 2.1～2.6 / Step 6：source policy、procedure/HITL、data layout、adapters、scenario tools、fixture pipeline 與 two-stage flow skeleton。 |
+| Local-rule lifecycle | 新北市地方規範已將法律事件日期（`promulgated_at`／`effective_from`／`effective_to`）與資料處理日期（`retrieved_at`／`verified_at`）分離；`as_of_date` 查詢遇到日期未知、版本重疊或已廢止／被取代時一律 fail closed。台北、桃園在有同等驗證的地方 pack 前持續 disabled。 |
 | Fixture evidence | 12 份 synthetic de-identified cases、84 個 atomic correction items，用來驗證 schema、gates 與 HITL contract；不支撐真實案件 claim。 |
 | Secure Web | Local 與 single-user pilot 已涵蓋 identity、案件授權、direct quarantine upload、masking、Codex-auth worker analysis、HITL、audit 與 verified deletion。 |
 | 仍需完成 | approved real de-identified cases、live official-source ingestion/refresh、公開 Google／LINE acceptance，以及獨立 sandbox 的 PDF／圖片 parser。 |
