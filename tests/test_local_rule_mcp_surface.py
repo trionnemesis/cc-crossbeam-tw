@@ -1,6 +1,6 @@
 import copy
 import json
-import tomllib
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -65,6 +65,32 @@ class LocalRuleMcpSurfaceTests(unittest.TestCase):
         self.assertEqual(payload["lifecycle_status"], "unknown_effective_from")
         self.assertEqual(payload["required_documents"], [])
 
+    def test_historical_inactive_version_does_not_receive_current_legacy_fields(self):
+        records = copy.deepcopy(load_local_rule_records())
+        current = records[0]
+        current["effective_from"] = "2024-01-01"
+        previous = copy.deepcopy(current)
+        previous["source_id"] = f"{current['source_id']}-historical"
+        previous["legal_status"] = "superseded"
+        previous["effective_from"] = "2011-04-25"
+        previous["effective_to"] = "2023-12-31"
+        records.append(previous)
+
+        with patch("tw_law_mcp.server.load_local_rule_records", return_value=records):
+            payload = self._call_tool(
+                "get_local_rule",
+                {
+                    "jurisdiction": "ntpc",
+                    "rule_name": NTPC_RULE_NAME,
+                    "as_of_date": "2020-01-01",
+                },
+            )
+
+        self.assertFalse(payload["exists"])
+        self.assertTrue(payload["human_review_required"])
+        self.assertEqual(payload["lifecycle_status"], "historical_projection_unavailable")
+        self.assertEqual(payload["required_documents"], [])
+
     def test_pending_reverification_blocks_mcp_local_rule_lookup(self):
         records = copy.deepcopy(load_local_rule_records())
         records[0]["legal_status"] = "pending_reverification"
@@ -111,8 +137,12 @@ class LocalRuleMcpSurfaceTests(unittest.TestCase):
         self.assertEqual(response["result"]["serverInfo"]["version"], __version__)
 
     def test_distribution_metadata_matches_runtime_version(self):
-        pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-        self.assertEqual(pyproject["project"]["version"], __version__)
+        pyproject_text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        project_section = re.search(r"(?ms)^\[project\]\s*(.*?)(?=^\[|\Z)", pyproject_text)
+        self.assertIsNotNone(project_section)
+        version_match = re.search(r'^version\s*=\s*"([^"]+)"\s*$', project_section.group(1), re.MULTILINE)
+        self.assertIsNotNone(version_match)
+        self.assertEqual(version_match.group(1), __version__)
 
 
 if __name__ == "__main__":
