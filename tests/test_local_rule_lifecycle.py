@@ -2,6 +2,7 @@ import copy
 import unittest
 
 from tw_law_mcp.local_rule_lifecycle import (
+    augment_phase_acceptance,
     load_local_rule_records,
     run_local_rule_lifecycle_acceptance,
     select_local_rule_version,
@@ -88,6 +89,20 @@ class LocalRuleLifecycleTests(unittest.TestCase):
         self.assertTrue(result["human_review_required"])
         self.assertEqual(result["status"], "overlapping_versions")
 
+    def test_malformed_record_date_fails_closed_without_raising(self):
+        changed = copy.deepcopy(self.records)
+        changed[0]["effective_from"] = "not-a-date"
+        result = select_local_rule_version(
+            changed,
+            jurisdiction="ntpc",
+            official_identifier="C0170020",
+            as_of_date="2020-06-01",
+        )
+        self.assertFalse(result["exists"])
+        self.assertTrue(result["human_review_required"])
+        self.assertEqual(result["status"], "invalid_record_date")
+        self.assertTrue(any("effective_from" in item for item in result["candidates"]))
+
     def test_normalized_requirement_hash_is_enforced(self):
         changed = copy.deepcopy(self.record)
         changed["requirements"][0]["normalized_facts"]["building_transcript_max_age_months"] = 12
@@ -100,6 +115,15 @@ class LocalRuleLifecycleTests(unittest.TestCase):
         self.assertEqual(acceptance["failures"], [])
         self.assertEqual(acceptance["record_count"], 1)
         self.assertEqual(acceptance["normalized_requirement_count"], 5)
+
+    def test_aggregate_helper_adds_lifecycle_gate(self):
+        result = augment_phase_acceptance(
+            {"all_passed": True, "gates": {"existing": True}, "details": {}}
+        )
+        self.assertTrue(result["all_passed"])
+        self.assertTrue(result["gates"]["existing"])
+        self.assertTrue(result["gates"]["local_rule_lifecycle"])
+        self.assertIn("local_rule_lifecycle", result["details"])
 
 
 if __name__ == "__main__":
