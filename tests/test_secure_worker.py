@@ -293,6 +293,45 @@ class SecureWorkerTests(unittest.TestCase):
         connection.close()
         self.assertEqual(model_status, "blocked_by_data_governance")
 
+    def test_residual_detection_runs_with_the_model_disabled(self) -> None:
+        # An identity document number masking.PATTERNS does not cover but the
+        # independent detector does. codex_enabled is False here — the default —
+        # so this asserts the check is not reachable only through the model path.
+        upload_id = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
+        token = "r" * 43
+        raw = "說明一：請補申請書。證件 AB1234567 已附。".encode()
+        digest = self._intent(upload_id, token, raw)
+        accept_upload(
+            self.config,
+            token=token,
+            upload_id=upload_id,
+            media_type="text/plain",
+            content_length=len(raw),
+            content_sha256=digest,
+            stream=bytes_stream(raw),
+        )
+        self.assertFalse(self.config.codex_enabled)
+
+        with self.assertRaises(ResidualPiiBlocked):
+            process_upload(self.config, upload_id)
+
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        runs = connection.execute(
+            "SELECT id FROM analysis_run WHERE upload_id = ?", (upload_id,)
+        ).fetchall()
+        upload = connection.execute(
+            "SELECT state, error_code, sanitized_path FROM upload_record WHERE id = ?",
+            (upload_id,),
+        ).fetchone()
+        connection.close()
+        # Nothing durable, and the operator sees the safe code rather than the value.
+        self.assertEqual(runs, [])
+        self.assertEqual(upload["state"], "rejected")
+        self.assertEqual(upload["error_code"], "RESIDUAL_PII_BLOCKED")
+        self.assertIsNone(upload["sanitized_path"])
+        self.assertEqual(list(self.config.sanitized_root.glob("*")), [])
+
     def test_single_user_worker_accepts_https_origin_but_stays_on_loopback(self) -> None:
         with patch("worker.secure_worker.config.REPO_ROOT", Path(self.temp.name)):
             with patch("worker.secure_worker.config.RUNTIME_ROOT", Path(self.temp.name) / ".runtime"):

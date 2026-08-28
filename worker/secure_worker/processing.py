@@ -14,6 +14,7 @@ from .codex_provider import CodexCliProvider
 from .config import WorkerConfig
 from .database import WorkerDatabase
 from .masking import mask_sensitive_text
+from .residual_pii import assert_no_residual_pii
 
 
 SAFE_PROCESSING_ERRORS = {
@@ -50,6 +51,14 @@ def _question_rows(result: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _data_governance_state(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Consent state for this upload, with the two PII fields set by the worker.
+
+    The caller must have run masking and ``assert_no_residual_pii`` before this
+    point, so the two statuses report work that actually happened rather than an
+    assertion the gate cannot check. They are written after ``stored`` on purpose:
+    the web app supplies the consent record, but only the worker observes masking,
+    so a tampered ``data_governance_json`` cannot claim either status for itself.
+    """
     raw = row.get("data_governance_json")
     if not isinstance(raw, str) or not raw:
         return None
@@ -102,6 +111,11 @@ def process_upload(
         masking = mask_sensitive_text(text)
         if not masking.text.strip():
             raise RuntimeError("NO_EXTRACTABLE_TEXT")
+        # Second, independent look before the masked text becomes durable. The
+        # model path enforces this too, but the model is off by default while
+        # this path always runs: the masked text is written to disk, embedded in
+        # the analysis artifacts and rendered in the case UI either way.
+        assert_no_residual_pii(masking.text)
 
         sanitized_path = config.sanitized_root / f"{upload_id}.masked.txt"
         with sanitized_path.open("x", encoding="utf-8") as handle:
