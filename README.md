@@ -15,6 +15,7 @@ This repository is a prototype for architects, interior-renovation contractors, 
 ## Contents
 
 - [Why](#why)
+- [Local-rule lifecycle](#local-rule-lifecycle)
 - [How it works](#how-it-works)
 - [What it does](#what-it-does)
 - [Trust and security](#trust-and-security)
@@ -38,6 +39,21 @@ The difficult part of an interior-renovation submission is rarely a single looku
 Crossbeam TW is built around that handoff. It keeps domain logic in a standalone MCP server, makes uncertainty visible, and treats human review as a required output rather than an exception.
 
 The current domain focus is New Taipei interior renovation. Other jurisdictions are represented by registry stubs and fail closed until their source corpus and review policy are ready.
+
+## Local-rule lifecycle
+
+Version `0.5.0` separates **legal-event dates** from **data-processing dates** for local-government rules. A retrieval or verification timestamp is no longer allowed to silently become a promulgation, effective, or amendment date.
+
+The first verified local-rule record is New Taipei official identifier `C0170020` — `新北市建築物室內裝修審核及查驗作業事項規範`. The official portal establishes a promulgation date of `2011-04-25`; this repository does not have sufficient evidence to assert an `effective_from` or amendment date, so historical `as_of_date` selection intentionally fails closed until that evidence exists.
+
+The NTPC pack now keeps two evidence forms separate:
+
+- **Source snapshot** — an exact, point-located source record can be citation-verified without inventing an effective date.
+- **Normalized requirement** — point-level structured facts for points 7–11, each with an official locator and canonical hash of the normalized facts. These facts cover document evidence, simple filing, conditional fire documentation, correction/construction deadlines, and escalation conditions without pretending the normalized representation is verbatim law text.
+
+`簡易申報` is preserved as the canonical NTPC term; the legacy `簡易室內裝修` key remains only as an API compatibility alias. The generic New Taipei e-service homepage is explicitly marked `discovery_reference` and is not requirement evidence until a stable service/form identifier is verified.
+
+Taipei and Taoyuan remain disabled. Enabling another jurisdiction requires an active/abolished/superseded lifecycle record, non-overlapping version selection, verified source locators, and passing lifecycle/source/scenario acceptance.
 
 ## How it works
 
@@ -96,7 +112,7 @@ The [GitHub Pages site](https://trionnemesis.github.io/cc-crossbeam-tw/) is stat
 | **Submission checks** | A New Taipei document packet, missing-item list, sheet/file manifest, and source-bound references. |
 | **Correction handling** | Masked-document parsing, atomic correction items, response-draft inputs, and a professional confirmation packet. |
 | **Professional-domain routing** | Evidence prompts for fire equipment, fire compartments, egress, and material documentation. |
-| **Auditability** | Law snapshots, source policy, authority rank, license/update status, as-of dates, gate results, and human-review state. |
+| **Auditability** | Law snapshots, local-rule lifecycle/status, source policy, authority rank, license/update status, as-of dates, gate results, and human-review state. |
 
 The server currently exposes 38 MCP tools across law lookup, source policy, procedure routing, document handling, HITL, scenario checks, and acceptance gates. The canonical tool surface is in [`tw_law_mcp/server.py`](./tw_law_mcp/server.py); the complete scenario index is in [`docs/tw-scenario-feature-matrix.md`](./docs/tw-scenario-feature-matrix.md).
 
@@ -110,7 +126,7 @@ Read the [Secure Web runbook](./docs/runbook-secure-web.md) before handling real
 | **Quarantine** | Browser uploads go directly to private quarantine and must pass scan, validation, and masking before downstream access. |
 | **Model** | Only the minimum sanitized fields cross the model boundary. Local Codex execution is read-only, ephemeral, and isolated from the repository. |
 | **Domain** | Taiwan procedure and source logic stays in Python `tw_law_mcp`; the web layer does not duplicate legal decisions. |
-| **Uncertainty** | Missing evidence, low confidence, professional judgment, and unsupported claims fail closed and produce human-review work. |
+| **Uncertainty** | Missing evidence, unknown legal-effective dates, pending source changes, low confidence, professional judgment, and unsupported claims fail closed and produce human-review work. |
 | **Production** | Cloud mode rejects local auth, local storage, local DB, in-process jobs, and the local Codex provider until approved adapters and credentials exist. |
 
 This prototype does **not**:
@@ -134,6 +150,7 @@ git clone https://github.com/trionnemesis/cc-crossbeam-tw.git
 cd cc-crossbeam-tw
 
 python3 -m unittest discover -s tests
+python3 scripts/run_local_rule_lifecycle_acceptance.py
 python3 scripts/run_phase_acceptance.py
 python3 scripts/tw_law_mcp_stdio.py
 ```
@@ -192,12 +209,13 @@ This is a **public prototype**, not a production compliance product.
 
 | Area | Current state |
 | --- | --- |
-| Domain core | `0.4.1`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
+| Domain core | `0.5.0`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
+| Local-rule lifecycle | NTPC `C0170020` is active and point-located; promulgation is verified as `2011-04-25`; unknown `effective_from` causes historical as-of queries to fail closed. Points 7–11 are normalized and hash-checked. |
 | MCP packaging | Standalone stdio JSON-RPC subset first; Codex and Claude Code remain thin wrappers. |
-| Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, and two-stage flow skeleton. |
+| Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, two-stage flow skeleton, and local-rule lifecycle acceptance. |
 | Fixture evidence | 12 synthetic de-identified cases and 84 atomic correction items validate schema, gates, and HITL contract. They do not support real-case claims. |
 | Secure Web | Local and single-user pilot paths cover identity, case authorization, direct quarantine upload, masking, Codex-auth worker analysis, HITL, audit, and verified deletion. |
-| Still required | Approved real de-identified cases, live official-source ingestion/refresh, public Google/LINE acceptance, and a separately sandboxed PDF/image parser. |
+| Still required | TPE verified lifecycle pack, TYC verified local evidence, automated official-source change monitoring, the three central-law pending snapshots tracked in #16, public Google/LINE acceptance, and a separately sandboxed PDF/image parser. |
 
 The latest local and CI evidence is recorded in [`ACCEPTANCE.md`](./ACCEPTANCE.md). Missing external credentials are intentionally reported as pending; they are not replaced with synthetic “production accepted” claims.
 
@@ -205,11 +223,12 @@ The latest local and CI evidence is recorded in [`ACCEPTANCE.md`](./ACCEPTANCE.m
 
 | Path | Purpose |
 | --- | --- |
-| [`tw_law_mcp/`](./tw_law_mcp/) | Deterministic law/source repository and MCP server. |
+| [`tw_law_mcp/`](./tw_law_mcp/) | Deterministic law/source repository, local-rule lifecycle logic, and MCP server. |
+| [`tw_law_mcp/data/local_rules/`](./tw_law_mcp/data/local_rules/) | Versioned local-government rule records and point-level normalized requirements. |
 | [`worker/`](./worker/) | Secure upload, masking, domain-processing, and local model-provider boundary. |
 | [`web/`](./web/) | Next.js Secure Web pilot and browser-facing workflow. |
 | [`scripts/`](./scripts/) | stdio entrypoint, snapshots, and targeted acceptance runners. |
-| [`tests/`](./tests/) | Python MCP/domain/worker tests. |
+| [`tests/`](./tests/) | Python MCP/domain/worker tests, including lifecycle/version-selection regressions. |
 | [`web/tests/`](./web/tests/) | Web, auth, upload, HITL, and security-boundary tests. |
 | [`docs/`](./docs/) | Pages site, ADRs, runbook, and feature matrices. |
 | [`ACCEPTANCE.md`](./ACCEPTANCE.md) | Current verification evidence and remaining gates. |
@@ -237,6 +256,10 @@ Not to the current authenticated worker. The pilot accepts UTF-8 TXT and metadat
 ### Why is the MCP server separate from the web app?
 
 The domain and source-of-truth boundary should remain host-neutral. Codex, Claude Code, the Secure Web, and future consumers should call the same deterministic tools instead of copying legal logic into each surface.
+
+### Why can a current local rule be known while a historical `as_of_date` query still fails?
+
+The official portal can establish that a source is currently published and identify its promulgation metadata without proving every historical effective interval. Crossbeam TW keeps those claims separate. If `effective_from` cannot be verified, a dated historical selection is rejected instead of treating the retrieval date as legal evidence.
 
 ### Is the Secure Web production-ready?
 

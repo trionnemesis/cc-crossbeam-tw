@@ -5,6 +5,8 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
+from . import __version__
+from .local_rule_lifecycle import augment_phase_acceptance
 from .repository import load_default_repository
 
 
@@ -175,7 +177,7 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "run_phase_acceptance",
-        "description": "Run aggregate acceptance for all roadmap Phase gates.",
+        "description": "Run aggregate acceptance for all roadmap Phase gates, including local-rule lifecycle validation.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -507,7 +509,7 @@ class TwLawMcpServer:
             "list_jurisdictions": self.repo.list_jurisdictions,
             "run_jurisdiction_registry_acceptance": self.repo.run_jurisdiction_registry_acceptance,
             "run_packaging_acceptance": self.repo.run_packaging_acceptance,
-            "run_phase_acceptance": self.repo.run_phase_acceptance,
+            "run_phase_acceptance": self._run_phase_acceptance,
             "run_scenario_matrix_acceptance": self.repo.run_scenario_matrix_acceptance,
             "run_data_layout_acceptance": self.repo.run_data_layout_acceptance,
             "run_source_adapter_acceptance": self.repo.run_source_adapter_acceptance,
@@ -534,6 +536,9 @@ class TwLawMcpServer:
             "run_two_stage_flow_acceptance": self.repo.run_two_stage_flow_acceptance,
         }
 
+    def _run_phase_acceptance(self) -> JSON:
+        return augment_phase_acceptance(self.repo.run_phase_acceptance())
+
     def handle(self, request: JSON) -> JSON | None:
         method = request.get("method")
         request_id = request.get("id")
@@ -558,7 +563,7 @@ class TwLawMcpServer:
             },
             "serverInfo": {
                 "name": "tw-law-mcp",
-                "version": "0.4.1",
+                "version": __version__,
             },
             "instructions": (
                 "Use these tools for Taiwan/New Taipei interior renovation auditability tasks. "
