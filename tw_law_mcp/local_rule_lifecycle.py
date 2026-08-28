@@ -189,18 +189,6 @@ def select_local_rule_version(
         ids = tuple(str(record.get("source_id")) for record in matches)
         return VersionSelection(False, "pending_reverification", True, candidates=ids).as_dict()
 
-    active = [record for record in matches if record.get("legal_status") == "active"]
-    if as_of_date is None:
-        if len(active) == 1:
-            return VersionSelection(True, "current_active", False, record=active[0]).as_dict()
-        status = "ambiguous_active_versions" if active else "no_active_version"
-        return VersionSelection(False, status, True, candidates=tuple(str(r.get("source_id")) for r in active)).as_dict()
-
-    try:
-        target = date.fromisoformat(as_of_date)
-    except (TypeError, ValueError):
-        return VersionSelection(False, "invalid_as_of_date", True).as_dict()
-
     malformed_records: list[str] = []
     for record in matches:
         for field in ("effective_from", "effective_to"):
@@ -216,6 +204,18 @@ def select_local_rule_version(
             True,
             candidates=tuple(sorted(malformed_records)),
         ).as_dict()
+
+    active = [record for record in matches if record.get("legal_status") == "active"]
+    if as_of_date is None:
+        if len(active) == 1:
+            return VersionSelection(True, "current_active", False, record=active[0]).as_dict()
+        status = "ambiguous_active_versions" if active else "no_active_version"
+        return VersionSelection(False, status, True, candidates=tuple(str(r.get("source_id")) for r in active)).as_dict()
+
+    try:
+        target = date.fromisoformat(as_of_date)
+    except (TypeError, ValueError):
+        return VersionSelection(False, "invalid_as_of_date", True).as_dict()
 
     unknown_effective = [record for record in active if not record.get("effective_from")]
     if unknown_effective:
@@ -238,7 +238,20 @@ def select_local_rule_version(
             candidates.append(record)
 
     if len(candidates) == 1:
-        return VersionSelection(True, "effective_version", False, record=candidates[0]).as_dict()
+        candidate = candidates[0]
+        # Historical lifecycle metadata may identify an inactive version, but the
+        # legacy compatibility projection exposed by MCP is not versioned. Returning
+        # that projection for a superseded/abolished lifecycle record would mix old
+        # status with current operative fields, so fail closed until compatibility
+        # fields are versioned alongside lifecycle records.
+        if candidate.get("legal_status") != "active":
+            return VersionSelection(
+                False,
+                "historical_projection_unavailable",
+                True,
+                candidates=(str(candidate.get("source_id")),),
+            ).as_dict()
+        return VersionSelection(True, "effective_version", False, record=candidate).as_dict()
     if len(candidates) > 1:
         return VersionSelection(
             False,

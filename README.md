@@ -10,7 +10,7 @@ This repository is a prototype for architects, interior-renovation contractors, 
 
 `tw-law-mcp` turns that work into deterministic, traceable MCP tools. A compatible assistant can inspect the local corpus and source snapshots, return the relevant artifacts and uncertainty, and stop for human confirmation when the evidence is incomplete. It is deliberately not a legal-advice or professional-sign-off system.
 
-[繁體中文說明](./README.zh-TW.md) · [Public Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) · [Architecture](./ARCHITECTURE.md) · [Acceptance evidence](./ACCEPTANCE.md) · [Contributing](./CONTRIBUTING.md)
+[繁體中文說明](./README.zh-TW.md) · [Public Pages](https://trionnemesis.github.io/cc-crossbeam-tw/) · [Architecture](./ARCHITECTURE.md) · [Acceptance evidence](./ACCEPTANCE.md) · [v0.5.1 release notes](./docs/releases/v0.5.1.md) · [Contributing](./CONTRIBUTING.md)
 
 ## Contents
 
@@ -42,11 +42,13 @@ The current domain focus is New Taipei interior renovation. Other jurisdictions 
 
 ## Local-rule lifecycle
 
-Version `0.5.0` separates **legal-event dates** from **data-processing dates** for local-government rules. A retrieval or verification timestamp is no longer allowed to silently become a promulgation, effective, or amendment date.
+Version `0.5.0` introduced separation between **legal-event dates** and **data-processing dates** for local-government rules. A retrieval or verification timestamp is no longer allowed to silently become a promulgation, effective, or amendment date.
+
+Version `0.5.1` closes the remaining lookup boundary: MCP `get_local_rule` now selects the canonical lifecycle record **before** returning legacy compatibility fields. A rule marked `abolished`, `superseded`, `pending_reverification`, ambiguous, malformed, or historically indeterminate cannot be recovered through the older corpus projection. Runtime and Python distribution versions are also kept in sync.
 
 The first verified local-rule record is New Taipei official identifier `C0170020` — `新北市建築物室內裝修審核及查驗作業事項規範`. The official portal establishes a promulgation date of `2011-04-25`; this repository does not have sufficient evidence to assert an `effective_from` or amendment date, so historical `as_of_date` selection intentionally fails closed until that evidence exists.
 
-The NTPC pack now keeps two evidence forms separate:
+The NTPC pack keeps two evidence forms separate:
 
 - **Source snapshot** — an exact, point-located source record can be citation-verified without inventing an effective date.
 - **Normalized requirement** — point-level structured facts for points 7–11, each with an official locator and canonical hash of the normalized facts. These facts cover document evidence, simple filing, conditional fire documentation, correction/construction deadlines, and escalation conditions without pretending the normalized representation is verbatim law text.
@@ -68,7 +70,7 @@ flowchart LR
     B --> C[Procedure route]
     B --> D[Submission packet]
     B --> E[Correction items]
-    B --> F[Sources + gates]
+    B --> F[Sources + lifecycle + gates]
     C --> G[Human confirmation]
     D --> G
     E --> G
@@ -112,6 +114,7 @@ The [GitHub Pages site](https://trionnemesis.github.io/cc-crossbeam-tw/) is stat
 | **Submission checks** | A New Taipei document packet, missing-item list, sheet/file manifest, and source-bound references. |
 | **Correction handling** | Masked-document parsing, atomic correction items, response-draft inputs, and a professional confirmation packet. |
 | **Professional-domain routing** | Evidence prompts for fire equipment, fire compartments, egress, and material documentation. |
+| **Local-rule lifecycle** | Lifecycle-aware current/historical lookup; inactive, pending, ambiguous, malformed, or indeterminate versions fail closed. |
 | **Auditability** | Law snapshots, local-rule lifecycle/status, source policy, authority rank, license/update status, as-of dates, gate results, and human-review state. |
 
 The server currently exposes 38 MCP tools across law lookup, source policy, procedure routing, document handling, HITL, scenario checks, and acceptance gates. The canonical tool surface is in [`tw_law_mcp/server.py`](./tw_law_mcp/server.py); the complete scenario index is in [`docs/tw-scenario-feature-matrix.md`](./docs/tw-scenario-feature-matrix.md).
@@ -125,14 +128,13 @@ Read the [Secure Web runbook](./docs/runbook-secure-web.md) before handling real
 | **Input** | Prefer masked text, metadata, and de-identified fixtures. Raw drawings and raw PDFs do not belong in an assistant prompt. |
 | **Quarantine** | Browser uploads go directly to private quarantine and must pass scan, validation, and masking before downstream access. |
 | **Model** | Only the minimum sanitized fields cross the model boundary. Local Codex execution is read-only, ephemeral, and isolated from the repository. |
-| **Domain** | Taiwan procedure and source logic stays in Python `tw_law_mcp`; the web layer does not duplicate legal decisions. |
-| **Uncertainty** | Missing evidence, unknown legal-effective dates, pending source changes, low confidence, professional judgment, and unsupported claims fail closed and produce human-review work. |
+| **Domain** | Taiwan procedure, source, and local-rule lifecycle logic stays in Python `tw_law_mcp`; the web layer does not duplicate legal decisions. |
+| **Uncertainty** | Missing evidence, unknown legal-effective dates, pending source changes, inactive/ambiguous versions, low confidence, professional judgment, and unsupported claims fail closed and produce human-review work. |
 | **Production** | Cloud mode rejects local auth, local storage, local DB, in-process jobs, and the local Codex provider until approved adapters and credentials exist. |
 
 This prototype does **not**:
 
-- enable multi-user case invitations or reviewer collaboration; the current
-  `reviewer` and `invitation` schema is reserved for a future adapter;
+- enable multi-user case invitations or reviewer collaboration; the current `reviewer` and `invitation` schema is reserved for a future adapter;
 - decide whether a case is legal, illegal, or an unauthorized construction;
 - provide legal opinions, compliance guarantees, or professional certification;
 - guarantee that an authority will approve a submission;
@@ -202,6 +204,7 @@ Other useful requests:
 - “Build a New Taipei completion-inspection submission packet and list missing evidence.”
 - “Parse this masked correction notice into atomic items and produce a human-confirmation packet.”
 - “Show the source IDs, as-of dates, failed gates, and unsupported claims behind this artifact.”
+- “Look up the current New Taipei local rule and show the lifecycle status; do not return requirements if the source is pending reverification.”
 
 ## Current status
 
@@ -209,10 +212,10 @@ This is a **public prototype**, not a production compliance product.
 
 | Area | Current state |
 | --- | --- |
-| Domain core | `0.5.0`; New Taipei interior renovation is enabled; other jurisdictions fail closed. |
-| Local-rule lifecycle | NTPC `C0170020` is active and point-located; promulgation is verified as `2011-04-25`; unknown `effective_from` causes historical as-of queries to fail closed. Points 7–11 are normalized and hash-checked. |
+| Domain core | `0.5.1`; New Taipei interior renovation is enabled; other jurisdictions fail closed. Runtime and distribution metadata are synchronized. |
+| Local-rule lifecycle | NTPC `C0170020` is active and point-located; promulgation is verified as `2011-04-25`; unknown `effective_from` causes historical as-of queries to fail closed. MCP `get_local_rule` is lifecycle-bound, and points 7–11 are normalized and hash-checked. |
 | MCP packaging | Standalone stdio JSON-RPC subset first; Codex and Claude Code remain thin wrappers. |
-| Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, two-stage flow skeleton, and local-rule lifecycle acceptance. |
+| Workflow coverage | Groups 1–6 plus Phase 2.1–2.6 / Step 6: source policy, procedure/HITL, data layout, adapters, scenario tools, fixture pipeline, two-stage flow skeleton, lifecycle-aware lookup, and local-rule lifecycle acceptance. |
 | Fixture evidence | 12 synthetic de-identified cases and 84 atomic correction items validate schema, gates, and HITL contract. They do not support real-case claims. |
 | Secure Web | Local and single-user pilot paths cover identity, case authorization, direct quarantine upload, masking, Codex-auth worker analysis, HITL, audit, and verified deletion. |
 | Still required | TPE verified lifecycle pack, TYC verified local evidence, automated official-source change monitoring, the three central-law pending snapshots tracked in #16, public Google/LINE acceptance, and a separately sandboxed PDF/image parser. |
@@ -228,8 +231,9 @@ The latest local and CI evidence is recorded in [`ACCEPTANCE.md`](./ACCEPTANCE.m
 | [`worker/`](./worker/) | Secure upload, masking, domain-processing, and local model-provider boundary. |
 | [`web/`](./web/) | Next.js Secure Web pilot and browser-facing workflow. |
 | [`scripts/`](./scripts/) | stdio entrypoint, snapshots, and targeted acceptance runners. |
-| [`tests/`](./tests/) | Python MCP/domain/worker tests, including lifecycle/version-selection regressions. |
+| [`tests/`](./tests/) | Python MCP/domain/worker tests, including lifecycle/version-selection and lookup-bypass regressions. |
 | [`web/tests/`](./web/tests/) | Web, auth, upload, HITL, and security-boundary tests. |
+| [`docs/releases/v0.5.1.md`](./docs/releases/v0.5.1.md) | Latest hotfix release notes. |
 | [`docs/`](./docs/) | Pages site, ADRs, runbook, and feature matrices. |
 | [`ACCEPTANCE.md`](./ACCEPTANCE.md) | Current verification evidence and remaining gates. |
 | [`TASK-STATE.md`](./TASK-STATE.md) | Secure Web implementation state and external blockers. |
@@ -260,6 +264,10 @@ The domain and source-of-truth boundary should remain host-neutral. Codex, Claud
 ### Why can a current local rule be known while a historical `as_of_date` query still fails?
 
 The official portal can establish that a source is currently published and identify its promulgation metadata without proving every historical effective interval. Crossbeam TW keeps those claims separate. If `effective_from` cannot be verified, a dated historical selection is rejected instead of treating the retrieval date as legal evidence.
+
+### What happens if an official local rule is marked pending reverification?
+
+Lifecycle-aware lookup returns no operative requirements and requires human review. The legacy compatibility projection is consulted only after lifecycle selection has already approved the active version.
 
 ### Is the Secure Web production-ready?
 

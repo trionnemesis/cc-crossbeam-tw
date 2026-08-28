@@ -6,7 +6,11 @@ from collections.abc import Callable
 from typing import Any
 
 from . import __version__
-from .local_rule_lifecycle import augment_phase_acceptance
+from .local_rule_lifecycle import (
+    augment_phase_acceptance,
+    load_local_rule_records,
+    select_local_rule_version,
+)
 from .repository import load_default_repository
 
 
@@ -98,7 +102,7 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "get_local_rule",
-        "description": "Get structured local-law metadata (jurisdiction + rule name + documents + policy).",
+        "description": "Get lifecycle-aware structured local-law metadata; inactive, pending, ambiguous, malformed, missing-lifecycle, or historically indeterminate rules fail closed.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -501,7 +505,7 @@ class TwLawMcpServer:
             "get_article": self.repo.get_article,
             "verify_citation": self.repo.verify_citation,
             "check_claim_support": self.repo.check_claim_support,
-            "get_local_rule": self.repo.get_local_rule,
+            "get_local_rule": self._get_local_rule,
             "detect_illegal_construction_reference": self.repo.detect_illegal_construction_reference,
             "get_source_policy": self.repo.get_source_policy,
             "compare_source_policies": self.repo.compare_source_policies,
@@ -534,6 +538,104 @@ class TwLawMcpServer:
             "run_tw_corrections_analysis": self.repo.run_tw_corrections_analysis,
             "run_tw_corrections_response": self.repo.run_tw_corrections_response,
             "run_two_stage_flow_acceptance": self.repo.run_two_stage_flow_acceptance,
+        }
+
+    def _get_local_rule(
+        self,
+        jurisdiction: str,
+        rule_name: str,
+        as_of_date: str | None = None,
+    ) -> JSON:
+        normalized_jurisdiction = jurisdiction.lower()
+        records = load_local_rule_records()
+        matching_records = [
+            record
+            for record in records
+            if isinstance(record.get("jurisdiction"), dict)
+            and record["jurisdiction"].get("local") == normalized_jurisdiction
+            and record.get("rule_name") == rule_name
+        ]
+        if not matching_records:
+            legacy = self.repo.get_local_rule(normalized_jurisdiction, rule_name, as_of_date)
+            if not legacy.get("exists"):
+                return legacy
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "lifecycle_record_missing",
+                "required_documents": [],
+            }
+
+        identifiers = sorted(
+            {
+                str(record.get("official_identifier"))
+                for record in matching_records
+                if record.get("official_identifier")
+            }
+        )
+        if len(identifiers) != 1:
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "ambiguous_official_identifier",
+                "required_documents": [],
+                "candidate_official_identifiers": identifiers,
+            }
+
+        official_identifier = identifiers[0]
+        selection = select_local_rule_version(
+            records,
+            jurisdiction=normalized_jurisdiction,
+            official_identifier=official_identifier,
+            as_of_date=as_of_date,
+        )
+        if not selection.get("exists"):
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "official_identifier": official_identifier,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": selection.get("status"),
+                "required_documents": [],
+                "candidates": selection.get("candidates", []),
+            }
+
+        lifecycle_record = selection.get("record") or {}
+        # Compatibility fields still come from the legacy projection, but only after
+        # lifecycle selection has established that this version is safe to use.
+        legacy = self.repo.get_local_rule(normalized_jurisdiction, rule_name, None)
+        if not legacy.get("exists"):
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "official_identifier": official_identifier,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "legacy_projection_missing",
+                "required_documents": [],
+            }
+
+        return {
+            **legacy,
+            "as_of_date": as_of_date,
+            "official_identifier": official_identifier,
+            "legal_status": lifecycle_record.get("legal_status"),
+            "lifecycle_status": selection.get("status"),
+            "promulgated_at": lifecycle_record.get("promulgated_at"),
+            "effective_from": lifecycle_record.get("effective_from"),
+            "effective_to": lifecycle_record.get("effective_to"),
+            "amended_at": lifecycle_record.get("amended_at"),
+            "normalized_requirements": lifecycle_record.get("requirements", []),
+            "human_review_required": False,
         }
 
     def _run_phase_acceptance(self) -> JSON:
