@@ -1,0 +1,63 @@
+name: release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - tw_law_mcp/__init__.py
+      - docs/releases/**
+      - .github/workflows/release.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          text = Path('tw_law_mcp/__init__.py').read_text(encoding='utf-8')
+          match = re.search(r'^__version__\s*=\s*["\x27]([^"\x27]+)["\x27]\s*$', text, re.MULTILINE)
+          if not match:
+              raise SystemExit('cannot resolve __version__')
+          print(match.group(1))
+          PY
+          )"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$TAG already exists; no-op"
+            exit 0
+          fi
+
+          notes="docs/releases/${TAG}.md"
+          test -f "$notes"
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --notes-file "$notes"
