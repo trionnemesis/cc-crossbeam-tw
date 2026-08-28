@@ -78,6 +78,30 @@ class LocalRuleMcpSurfaceTests(unittest.TestCase):
         self.assertEqual(payload["lifecycle_status"], "pending_reverification")
         self.assertEqual(payload["required_documents"], [])
 
+    def test_missing_lifecycle_record_blocks_legacy_projection(self):
+        with patch("tw_law_mcp.server.load_local_rule_records", return_value=[]):
+            payload = self._call_tool(
+                "get_local_rule",
+                {"jurisdiction": "ntpc", "rule_name": NTPC_RULE_NAME},
+            )
+        self.assertFalse(payload["exists"])
+        self.assertTrue(payload["human_review_required"])
+        self.assertEqual(payload["lifecycle_status"], "lifecycle_record_missing")
+        self.assertEqual(payload["required_documents"], [])
+
+    def test_malformed_current_lifecycle_date_blocks_lookup(self):
+        records = copy.deepcopy(load_local_rule_records())
+        records[0]["effective_from"] = "not-a-date"
+        with patch("tw_law_mcp.server.load_local_rule_records", return_value=records):
+            payload = self._call_tool(
+                "get_local_rule",
+                {"jurisdiction": "ntpc", "rule_name": NTPC_RULE_NAME},
+            )
+        self.assertFalse(payload["exists"])
+        self.assertTrue(payload["human_review_required"])
+        self.assertEqual(payload["lifecycle_status"], "invalid_record_date")
+        self.assertEqual(payload["required_documents"], [])
+
     def test_initialize_reports_package_version(self):
         response = self.server.handle(
             {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}}
