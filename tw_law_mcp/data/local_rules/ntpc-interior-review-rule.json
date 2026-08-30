@@ -1,0 +1,112 @@
+{
+  "records": [
+    {
+      "source_id": "ntpc-interior-review-rule",
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
+      "official_identifier": "C0170020",
+      "rule_name": "新北市建築物室內裝修審核及查驗作業事項規範",
+      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
+      "source_kind": "local_rule",
+      "representation": "normalized_requirement",
+      "legal_status": "active",
+      "promulgated_at": "2011-04-25",
+      "promulgated_at_basis": "official_portal_metadata",
+      "effective_from": null,
+      "effective_to": null,
+      "amended_at": null,
+      "retrieved_at": "2026-08-28T11:46:00+08:00",
+      "verified_at": "2026-08-28T11:46:00+08:00",
+      "source_authority_rank": 3,
+      "source_license_status": "official_reference_only",
+      "crawl_policy": "official_reference_only",
+      "source_text_sha256": null,
+      "source_text_hash_status": "not_retained_for_normalized_reference",
+      "supersedes": [],
+      "superseded_by": [],
+      "requirements": [
+        {
+          "requirement_id": "ntpc-C0170020-p7-documents",
+          "source_locator": {"point": "7"},
+          "procedure_stages": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗"],
+          "normalized_facts": {
+            "building_transcript_max_age_months": 3,
+            "contractor_and_professional_credentials_required": true,
+            "existing_material_without_certificate_requires_professional_marking_photo_and_signature": true,
+            "fireproof_coating_completion_evidence_required_when_used": true,
+            "normally_closed_fire_door_label_required": true,
+            "change_of_use_completion_requires_building_code_review": true,
+            "unauthorized_construction_area_requires_drawing_marking_and_fire_review": true
+          },
+          "normalized_content_sha256": "88627d0f97c71d04aa2c91b8e1c344291a461373c888ccd406029cdf90f2ac4f",
+          "verification_status": "normalized_verified",
+          "source_text_sha256": null,
+          "normalization_note": "Structured paraphrase of the cited official point; not a verbatim legal-text snapshot."
+        },
+        {
+          "requirement_id": "ntpc-C0170020-p8-simple-filing",
+          "source_locator": {"point": "8"},
+          "procedure_stages": ["簡易申報"],
+          "aliases": ["簡易室內裝修"],
+          "normalized_facts": {
+            "canonical_procedure_term": "簡易申報",
+            "pre_construction_filing_required": true,
+            "post_completion_filing_required": true,
+            "post_completion_document_categories": ["審查合格證明申請書", "竣工查驗簽證檢查表", "檢討項目審查表", "建築物權利或使用權文件", "使用執照或同等效力文件", "共用部分同意文件（條件式）", "結構安全證明（條件式）", "室內裝修從業者證明", "消防專業人員證明", "既有核准圖面或合規替代現況圖", "室內裝修圖說", "材料證明", "違建項目簽證表", "其他必要文件"]
+          },
+          "normalized_content_sha256": "10aac5a3dd997b8d65045b854020af7533d243582461f5e0d00f6b19d70af5fb",
+          "verification_status": "normalized_verified",
+          "source_text_sha256": null,
+          "normalization_note": "Structured paraphrase of the cited official point; not a verbatim legal-text snapshot."
+        },
+        {
+          "requirement_id": "ntpc-C0170020-p9-fire-condition",
+          "source_locator": {"point": "9"},
+          "procedure_stages": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗", "簡易申報"],
+          "normalized_facts": {
+            "fire_equipment_change_obstruction_or_damage_requires_fire_authority_documents": true,
+            "fire_documents_may_be_submitted_at_completion_review": true,
+            "no_change_no_automatic_fire_document_requirement": true
+          },
+          "normalized_content_sha256": "866ceef6dcf29e3b12e6e59f97c52f53a640fc216e846b099592237c1a7a431c",
+          "verification_status": "normalized_verified",
+          "source_text_sha256": null,
+          "normalization_note": "Structured paraphrase of the cited official point; not a verbatim legal-text snapshot."
+        },
+        {
+          "requirement_id": "ntpc-C0170020-p10-deadlines",
+          "source_locator": {"point": "10"},
+          "procedure_stages": ["圖說審核", "竣工查驗"],
+          "normalized_facts": {
+            "drawing_correction_deadline_months": 6,
+            "construction_completion_deadline_months": 6,
+            "standard_extension_months": 6,
+            "standard_extension_limit": 1,
+            "completion_correction_deadline_months": 3,
+            "overdue_routes_to_ntpc": true
+          },
+          "normalized_content_sha256": "107a346a42fb233209ec84534fb2e9555ce9d6226f9dbb41f785d43a52f8d5cb",
+          "verification_status": "normalized_verified",
+          "source_text_sha256": null,
+          "normalization_note": "Structured paraphrase of the cited official point; not a verbatim legal-text snapshot."
+        },
+        {
+          "requirement_id": "ntpc-C0170020-p11-escalation",
+          "source_locator": {"point": "11"},
+          "procedure_stages": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗", "簡易申報"],
+          "normalized_facts": {
+            "escalate_on_legal_or_operational_doubt": true,
+            "escalate_on_scope_partition_mismatch": true,
+            "escalate_on_unfixed_material_or_as_built_nonconformance": true,
+            "escalate_on_unqualified_professional_work": true,
+            "escalate_on_registration_lending": true,
+            "serious_other_violation_escalation": true
+          },
+          "normalized_content_sha256": "d3b57edd0be1e8cf21b5bdd80e624980d84eac5d765051305d5c2208a4f40b96",
+          "verification_status": "normalized_verified",
+          "source_text_sha256": null,
+          "normalization_note": "Structured paraphrase of the cited official point; not a verbatim legal-text snapshot."
+        }
+      ]
+    }
+  ]
+}

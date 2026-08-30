@@ -4,15 +4,14 @@ import json
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
-from tw_law_mcp.repository import load_default_repository  # noqa: E402
+from tw_law_mcp.local_rule_lifecycle import run_local_rule_lifecycle_acceptance  # noqa: E402
 
 
 def main() -> int:
-    result = load_default_repository().run_local_rule_lifecycle_acceptance()
+    result = run_local_rule_lifecycle_acceptance()
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
     return 0 if result["all_passed"] else 1
 

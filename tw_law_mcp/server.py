@@ -5,6 +5,12 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
+from . import __version__
+from .local_rule_lifecycle import (
+    augment_phase_acceptance,
+    load_local_rule_records,
+    select_local_rule_version,
+)
 from .repository import load_default_repository
 
 
@@ -96,7 +102,7 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "get_local_rule",
-        "description": "Get structured local-law metadata (jurisdiction + rule name + documents + policy).",
+        "description": "Get lifecycle-aware structured local-law metadata; inactive, pending, ambiguous, malformed, missing-lifecycle, or historically indeterminate rules fail closed.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -106,50 +112,6 @@ TOOL_SCHEMAS: list[JSON] = [
             },
             "required": ["jurisdiction", "rule_name"],
         },
-    },
-    {
-        "name": "list_local_rule_units",
-        "description": (
-            "List point-level local-rule requirement units (required/conditional "
-            "documents, deadlines, escalation notes) filtered by jurisdiction, "
-            "law_id, and/or procedure_stage."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "jurisdiction": {"type": "string"},
-                "law_id": {"type": "string"},
-                "procedure_stage": {"type": "string"},
-            },
-        },
-    },
-    {
-        "name": "select_local_rule_lifecycle",
-        "description": (
-            "Fail-closed local-rule version selection by law identity (not just "
-            "name): excludes abolished/superseded/pending_reverification records, "
-            "and reports version_overlap instead of guessing when more than one "
-            "candidate would otherwise apply as of the given date."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "jurisdiction": {"type": "string"},
-                "law_id": {"type": "string"},
-                "official_identifier": {"type": "string"},
-                "as_of_date": {"type": "string"},
-            },
-            "required": ["jurisdiction"],
-        },
-    },
-    {
-        "name": "run_local_rule_lifecycle_acceptance",
-        "description": (
-            "Verify the local-rule lifecycle contract: date-field semantics, "
-            "snapshot_verified/normalized_requirement consistency with hash and "
-            "locator, legal_status validity, and unresolved version overlaps."
-        ),
-        "inputSchema": {"type": "object", "properties": {}},
     },
     {
         "name": "detect_illegal_construction_reference",
@@ -219,7 +181,7 @@ TOOL_SCHEMAS: list[JSON] = [
     },
     {
         "name": "run_phase_acceptance",
-        "description": "Run aggregate acceptance for all roadmap Phase gates.",
+        "description": "Run aggregate acceptance for all roadmap Phase gates, including local-rule lifecycle validation.",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -543,10 +505,7 @@ class TwLawMcpServer:
             "get_article": self.repo.get_article,
             "verify_citation": self.repo.verify_citation,
             "check_claim_support": self.repo.check_claim_support,
-            "get_local_rule": self.repo.get_local_rule,
-            "list_local_rule_units": self.repo.list_local_rule_units,
-            "select_local_rule_lifecycle": self.repo.select_local_rule_lifecycle,
-            "run_local_rule_lifecycle_acceptance": self.repo.run_local_rule_lifecycle_acceptance,
+            "get_local_rule": self._get_local_rule,
             "detect_illegal_construction_reference": self.repo.detect_illegal_construction_reference,
             "get_source_policy": self.repo.get_source_policy,
             "compare_source_policies": self.repo.compare_source_policies,
@@ -554,7 +513,7 @@ class TwLawMcpServer:
             "list_jurisdictions": self.repo.list_jurisdictions,
             "run_jurisdiction_registry_acceptance": self.repo.run_jurisdiction_registry_acceptance,
             "run_packaging_acceptance": self.repo.run_packaging_acceptance,
-            "run_phase_acceptance": self.repo.run_phase_acceptance,
+            "run_phase_acceptance": self._run_phase_acceptance,
             "run_scenario_matrix_acceptance": self.repo.run_scenario_matrix_acceptance,
             "run_data_layout_acceptance": self.repo.run_data_layout_acceptance,
             "run_source_adapter_acceptance": self.repo.run_source_adapter_acceptance,
@@ -581,6 +540,107 @@ class TwLawMcpServer:
             "run_two_stage_flow_acceptance": self.repo.run_two_stage_flow_acceptance,
         }
 
+    def _get_local_rule(
+        self,
+        jurisdiction: str,
+        rule_name: str,
+        as_of_date: str | None = None,
+    ) -> JSON:
+        normalized_jurisdiction = jurisdiction.lower()
+        records = load_local_rule_records()
+        matching_records = [
+            record
+            for record in records
+            if isinstance(record.get("jurisdiction"), dict)
+            and record["jurisdiction"].get("local") == normalized_jurisdiction
+            and record.get("rule_name") == rule_name
+        ]
+        if not matching_records:
+            legacy = self.repo.get_local_rule(normalized_jurisdiction, rule_name, as_of_date)
+            if not legacy.get("exists"):
+                return legacy
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "lifecycle_record_missing",
+                "required_documents": [],
+            }
+
+        identifiers = sorted(
+            {
+                str(record.get("official_identifier"))
+                for record in matching_records
+                if record.get("official_identifier")
+            }
+        )
+        if len(identifiers) != 1:
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "ambiguous_official_identifier",
+                "required_documents": [],
+                "candidate_official_identifiers": identifiers,
+            }
+
+        official_identifier = identifiers[0]
+        selection = select_local_rule_version(
+            records,
+            jurisdiction=normalized_jurisdiction,
+            official_identifier=official_identifier,
+            as_of_date=as_of_date,
+        )
+        if not selection.get("exists"):
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "official_identifier": official_identifier,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": selection.get("status"),
+                "required_documents": [],
+                "candidates": selection.get("candidates", []),
+            }
+
+        lifecycle_record = selection.get("record") or {}
+        # Compatibility fields still come from the legacy projection, but only after
+        # lifecycle selection has established that this version is safe to use.
+        legacy = self.repo.get_local_rule(normalized_jurisdiction, rule_name, None)
+        if not legacy.get("exists"):
+            return {
+                "jurisdiction": normalized_jurisdiction,
+                "rule_name": rule_name,
+                "official_identifier": official_identifier,
+                "as_of_date": as_of_date,
+                "exists": False,
+                "human_review_required": True,
+                "lifecycle_status": "legacy_projection_missing",
+                "required_documents": [],
+            }
+
+        return {
+            **legacy,
+            "as_of_date": as_of_date,
+            "official_identifier": official_identifier,
+            "legal_status": lifecycle_record.get("legal_status"),
+            "lifecycle_status": selection.get("status"),
+            "promulgated_at": lifecycle_record.get("promulgated_at"),
+            "effective_from": lifecycle_record.get("effective_from"),
+            "effective_to": lifecycle_record.get("effective_to"),
+            "amended_at": lifecycle_record.get("amended_at"),
+            "normalized_requirements": lifecycle_record.get("requirements", []),
+            "human_review_required": False,
+        }
+
+    def _run_phase_acceptance(self) -> JSON:
+        return augment_phase_acceptance(self.repo.run_phase_acceptance())
+
     def handle(self, request: JSON) -> JSON | None:
         method = request.get("method")
         request_id = request.get("id")
@@ -605,7 +665,7 @@ class TwLawMcpServer:
             },
             "serverInfo": {
                 "name": "tw-law-mcp",
-                "version": "0.4.1",
+                "version": __version__,
             },
             "instructions": (
                 "Use these tools for Taiwan/New Taipei interior renovation auditability tasks. "

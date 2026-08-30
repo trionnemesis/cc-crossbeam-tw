@@ -1,17 +1,9 @@
 {
   "pack_id": "ntpc-interior-procedure",
   "enabled": true,
-  "jurisdiction": {
-    "central": "TW",
-    "local": "ntpc"
-  },
+  "jurisdiction": {"central": "TW", "local": "ntpc"},
   "case_type": "室內裝修",
-  "domain_tags": [
-    "procedure",
-    "ntpc_local",
-    "completion_inspection",
-    "simple_interior"
-  ],
+  "domain_tags": ["procedure", "ntpc_local", "completion_inspection", "simple_interior"],
   "source_units": [
     {
       "source_id": "ntpc-interior-review-rule",
@@ -22,87 +14,48 @@
       "authority_rank": 3,
       "license_status": "official_reference_only",
       "crawl_policy": "official_reference_only",
-      "source_kind": "local_rule",
       "official_identifier": "C0170020",
-      "representation": "normalized_requirement",
       "legal_status": "active",
+      "representation": "normalized_requirement",
       "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "supersedes": [],
-      "superseded_by": [],
-      "retrieved_at": "2026-08-28T00:00:00Z",
-      "verified_at": "2026-08-28",
+      "effective_date": "unknown",
+      "amendment_date": "unknown",
+      "legal_date_status": "unknown_effective_and_amendment_dates",
+      "retrieved_at": "2026-08-28T11:46:00+08:00",
+      "verified_at": "2026-08-28T11:46:00+08:00",
       "as_of_date": "2026-08-28",
-      "source_locator": null,
-      "tags": [
-        "圖說審核",
-        "竣工查驗",
-        "簡易申報"
-      ],
-      "jurisdiction": {
-        "central": "TW",
-        "local": "ntpc"
-      },
+      "as_of_date_basis": "source_retrieval_snapshot_only",
+      "tags": ["圖說審核", "竣工查驗", "變更使用", "簡易申報", "補正期限"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
       "case_type": "室內裝修",
-      "procedure_stage": [
-        "圖說審核",
-        "竣工查驗",
-        "變更使用併室內裝修竣工查驗",
-        "簡易室內裝修"
-      ],
-      "domain_tags": [
-        "procedure",
-        "ntpc_local"
-      ],
+      "procedure_stage": ["圖說審核", "竣工查驗", "變更使用併室內裝修竣工查驗", "簡易室內裝修"],
+      "domain_tags": ["procedure", "ntpc_local"],
       "source_adapter_id": "ntpc-official-portal",
-      "source_text_sha256": "5bd1d4d2f333d38f79f12217cb3bde7ceb13eb8ecc4493ad5e7b59132c540642",
-      "normalization_note": "本摘要為 normalized_requirement，非官方逐字快照；先前把四類程序摘要冒充第3點 exact snapshot 的錯誤引用已移除。精確逐點對應待官方來源比對或人工複核後才能升級為 snapshot_verified，並補上 source_locator。",
-      "text": "新北市建築物室內裝修審核及查驗作業事項規範由新北市政府於民國100年4月25日公發布；官方電子法規查詢系統僅明確揭露公發布日，未提供可確認的生效日或最近一次修正日，故 effective_from 與 amended_at 保持 null，需人工或後續 adapter 核對後才能補值。室內裝修相關程序（圖說審核、竣工查驗、變更使用併室內裝修竣工查驗、簡易申報）分散規定於本規範第5點與第8點等相關規定，非集中於單一點次，不應引用單一條次作為 exact snapshot。"
+      "text": "新北市官方地方規範來源。程序與文件需求以 point-level normalized requirements 表示；legacy source-unit 的 effective/amendment 欄位以 unknown 明示未知，真正的法律版本選取只使用 local-rule lifecycle contract。"
     },
     {
       "source_id": "ntpc-completion-eservice",
       "source_url": "https://service.ntpc.gov.tw/",
-      "source_title": "新北市竣工查驗線上申辦參考",
+      "source_title": "新北市線上申辦入口（discovery only）",
       "source_type": "discovery_reference",
       "authority": "NTPC",
       "authority_rank": 3,
       "license_status": "official_reference_only",
       "crawl_policy": "official_reference_only",
-      "source_kind": "official_portal_reference",
-      "official_identifier": null,
       "representation": "discovery_reference",
-      "requirement_evidence": false,
-      "supersedes": [],
-      "superseded_by": [],
-      "retrieved_at": "2026-08-28T00:00:00Z",
-      "verified_at": null,
+      "effective_date": "unknown",
+      "amendment_date": "unknown",
+      "legal_date_status": "not_applicable_discovery_reference",
+      "retrieved_at": "2026-08-28T11:46:00+08:00",
       "as_of_date": "2026-08-28",
-      "source_locator": null,
-      "tags": [
-        "竣工材料書",
-        "材料計算表",
-        "防火區劃照片",
-        "消防文件"
-      ],
-      "jurisdiction": {
-        "central": "TW",
-        "local": "ntpc"
-      },
+      "as_of_date_basis": "source_retrieval_snapshot_only",
+      "tags": ["線上申辦", "discovery_reference"],
+      "jurisdiction": {"central": "TW", "local": "ntpc"},
       "case_type": "室內裝修",
-      "procedure_stage": [
-        "竣工查驗"
-      ],
-      "domain_tags": [
-        "procedure",
-        "completion_inspection",
-        "ntpc_local"
-      ],
+      "procedure_stage": ["竣工查驗"],
+      "domain_tags": ["procedure", "completion_inspection", "ntpc_local"],
       "source_adapter_id": "ntpc-eservice-reference",
-      "source_text_sha256": "8360149c3d4ef05120cd99ec18b2522b27a4bad7a30d031ce40abbbe3bbd1a9c",
-      "normalization_note": "generic portal reference，尚未對應到特定服務項目、表單版本或服務 ID；升級為 requirement evidence 前需先取得具體識別碼並完成官方比對（見 issue #18 PR D 來源監測 adapter 規劃）。",
-      "text": "本連結為新北市政府線上申辦服務入口首頁，目前未能對應到竣工查驗特定申辦項目、表單版本或服務 ID。在取得具體服務項目與官方識別碼並完成比對前，本筆資料僅作 discovery_reference，不得作為 requirement evidence；竣工查驗 packet 缺項仍不得補完臆測。"
+      "text": "此 URL 只作為申辦服務探索入口；在取得固定 service ID 或特定表單 URL 前，不得作為 requirement evidence。"
     }
   ]
 }

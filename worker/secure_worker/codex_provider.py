@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .residual_pii import find_residual_sensitive_classes
+# ResidualPiiBlocked lives with the detector that raises it; it stays importable
+# from here because the model boundary is one of the places that enforces it.
+from .residual_pii import ResidualPiiBlocked, find_residual_sensitive_classes
 
 
 OUTPUT_SCHEMA = {
@@ -35,18 +37,6 @@ class CodexAnalysis:
     summary: str
     risk_flags: list[str]
     human_review_required: bool
-
-
-class ResidualPiiBlocked(ValueError):
-    """Raised when the independent detector still sees sensitive classes.
-
-    ``str()`` is a stable, non-revealing code because processing stores it in the
-    private database and surfaces it to the operator.
-    """
-
-    def __init__(self, classes: list[str]):
-        super().__init__("RESIDUAL_PII_BLOCKED")
-        self.classes = classes
 
 
 _FENCE_MARKER = re.compile(r"</?\s*UNTRUSTED_DOCUMENT[^>]*>", re.IGNORECASE)

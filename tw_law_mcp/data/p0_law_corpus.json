@@ -69,17 +69,6 @@
       "pending_reason": "條文快照尚未取得；本專案執行環境的網路輸出政策封鎖 law.moj.gov.tw，需由操作者放行網域或提供官方快照後才能標記 verified。"
     },
     {
-      "source_url": "https://web.law.ntpc.gov.tw/",
-      "source_authority_rank": 3,
-      "source_license_status": "official_reference_only",
-      "source_update_policy": "manual_snapshot_required",
-      "crawl_policy": "official_reference_only",
-      "verified_law_name": "新北市政府電子法規查詢系統",
-      "verified_at": "2026-07-06",
-      "update_policy_evidence": "新北市政府電子法規查詢系統提供法規動態與法規異動頁面，地方規範入庫前需人工快照。",
-      "license_evidence": "頁尾標示新北市政府版權所有，未經允許不得複製採用；因此採 official_reference_only。"
-    },
-    {
       "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
@@ -87,8 +76,8 @@
       "crawl_policy": "official_reference_only",
       "verified_law_name": "新北市建築物室內裝修審核及查驗作業事項規範",
       "verified_at": "2026-08-28",
-      "update_policy_evidence": "新北市政府電子法規查詢系統該筆法規頁面僅顯示公發布日，地方規範入庫前需人工快照；此為特定法規頁面（fcode=C0170020）的精確 URL，非入口首頁。",
-      "license_evidence": "頁尾標示新北市政府版權所有，未經允許不得複製採用；因此採 official_reference_only。"
+      "update_policy_evidence": "新北市政府電子法規查詢系統提供現行條文與發布資訊；地方規範進 corpus 前需人工核對來源定位與版本狀態。",
+      "license_evidence": "官方網站頁尾標示新北市政府版權所有，因此本專案僅保留必要來源定位、結構化事實與人工驗證資訊。"
     }
   ],
   "source_policy_comparisons": [
@@ -96,7 +85,7 @@
       "comparison_id": "moj-vs-ntpc-official-source-policy",
       "sources": [
         "https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=D0070148",
-        "https://web.law.ntpc.gov.tw/"
+        "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020"
       ],
       "differences": [
         {
@@ -115,7 +104,7 @@
           "field": "source_update_policy",
           "moj": "adapter_checked",
           "ntpc": "manual_snapshot_required",
-          "handling": "地方來源進正式 corpus 前需人工快照與 checksum。"
+          "handling": "地方來源進正式 corpus 前需人工快照或 point-level normalization 驗證。"
         }
       ],
       "decision": "P0 snapshot 可同時引用兩類來源，但輸出必須保留 rank、license、update_policy 與 crawl_policy。"
@@ -203,21 +192,11 @@
       "law_id": "ntpc-interior-renovation-review-rules",
       "rule_name": "新北市建築物室內裝修審核及查驗作業事項規範",
       "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
       "legal_status": "active",
+      "representation": "normalized_requirement",
       "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "supersedes": [],
-      "superseded_by": [],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "source_locator": null,
-      "source_text_sha256": "80c0796bf59d6515d42539ec209498523b0a12f677846dbe5c746523d47f74a2",
-      "normalization_note": "官方電子法規查詢系統僅明確揭露民國100年4月25日公發布，未提供可確認的生效日或修正日；effective_from/amended_at 依規則2保持 null，歷史 as_of_date 查詢一律 fail closed 並要求人工確認，不得自行假設生效日。",
-      "text": "新北市建築物室內裝修審核及查驗作業事項規範，法規識別碼 C0170020，民國100年4月25日公發布；採 official_reference_only 引用，逐字條文快照見各 point-level local_rule_units。",
+      "effective_date": null,
+      "amendment_date": null,
       "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
       "procedure_stages": [
         "圖說審核",
@@ -225,264 +204,17 @@
         "變更使用併室內裝修竣工查驗",
         "簡易室內裝修"
       ],
+      "canonical_procedure_aliases": {
+        "簡易室內裝修": "簡易申報"
+      },
       "required_documents": [
         "申請書",
         "建築物權利證明文件",
         "圖說/竣工圖說",
         "簽章責任文件",
         "消防安全設備相關文件（條件式）"
-      ]
-    }
-  ],
-  "local_rule_units": [
-    {
-      "source_id": "ntpc-interior-review-rule-procedure-summary",
-      "parent_law_id": "ntpc-interior-renovation-review-rules",
-      "jurisdiction": "ntpc",
-      "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
-      "legal_status": "active",
-      "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
-      "source_locator": null,
-      "procedure_stage": [
-        "圖說審核",
-        "竣工查驗",
-        "變更使用併室內裝修竣工查驗",
-        "簡易室內裝修"
       ],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "supersedes": [],
-      "superseded_by": [],
-      "source_text_sha256": "740211b1cc91ae4320348ef12c937fdbf6f054e52345f2d0b0e956f910406f61",
-      "normalization_note": "官方第3點並未列出四類程序的分類；相關內容分散於第5點與第8點等規定。exact 逐點對應待官方來源比對或人工複核後才能升級為 snapshot_verified，故本單元不帶 source_locator 點次。",
-      "text": "新北室內裝修案件依程序分為圖說審核、竣工查驗、變更使用併室內裝修竣工查驗與簡易申報（簡易室內裝修）；此分類為本規範整體要求的摘要，非第3點逐字內容。",
-      "required_documents": [],
-      "conditional_documents": [],
-      "deadlines": [],
-      "escalation_note": null,
-      "human_review_required": true
-    },
-    {
-      "source_id": "ntpc-interior-review-rule-point-7",
-      "parent_law_id": "ntpc-interior-renovation-review-rules",
-      "jurisdiction": "ntpc",
-      "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
-      "legal_status": "active",
-      "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
-      "source_locator": {
-        "point": "7",
-        "subpoint": null
-      },
-      "procedure_stage": [
-        "圖說審核",
-        "竣工查驗",
-        "變更使用併室內裝修竣工查驗"
-      ],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "supersedes": [],
-      "superseded_by": [],
-      "source_text_sha256": "068db7fa577260a5479717c9d3ef80c9e9263c77797adcafe8093b59425e1b7c",
-      "normalization_note": "依 issue #18 現況查核之主題摘要整理，逐字條文與可能的除外規定待官方來源比對後升級為 snapshot_verified。",
-      "text": "第7點涵蓋：三個月內建物登記謄本、從業者或專業人員資格證明、既有材料援用證明、防火塗料證明、防火門證明、變更使用相關文件與違建標示等要求（依個案是否涉及而定）。",
-      "required_documents": [
-        "三個月內建物登記謄本",
-        "從業者或專業人員資格證明"
-      ],
-      "conditional_documents": [
-        "既有材料援用證明文件（援用既有材料時）",
-        "防火塗料證明文件（涉及防火塗料時）",
-        "防火門證明文件（涉及防火門變更時）",
-        "變更使用相關文件（涉及變更使用時）",
-        "違建標示或相關文件（涉及違建時）"
-      ],
-      "deadlines": [],
-      "escalation_note": null,
-      "human_review_required": true
-    },
-    {
-      "source_id": "ntpc-interior-review-rule-point-8",
-      "parent_law_id": "ntpc-interior-renovation-review-rules",
-      "jurisdiction": "ntpc",
-      "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
-      "legal_status": "active",
-      "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
-      "source_locator": {
-        "point": "8",
-        "subpoint": null
-      },
-      "procedure_stage": [
-        "簡易室內裝修"
-      ],
-      "canonical_official_term": "簡易申報",
-      "aliases": [
-        "簡易室內裝修"
-      ],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "supersedes": [],
-      "superseded_by": [],
-      "source_text_sha256": "629f58e67a683d09483a205a88a9fb88d45acfa14f3e2d2e07c1c532987cbeb0",
-      "normalization_note": "依 issue #18 現況查核之主題摘要整理；官方詞彙為「簡易申報」，「簡易室內裝修」為現行系統別名，輸出應優先顯示官方詞彙。逐字條文待官方來源比對後升級為 snapshot_verified。",
-      "text": "第8點規定簡易申報施工前應備查文件，以及完工後應備文件清單；官方詞彙為「簡易申報」。",
-      "required_documents": [
-        "簡易申報施工前備查文件"
-      ],
-      "conditional_documents": [
-        "簡易申報完工後應備文件（依申報項目項別而定）"
-      ],
-      "deadlines": [],
-      "escalation_note": null,
-      "human_review_required": true
-    },
-    {
-      "source_id": "ntpc-interior-review-rule-point-9",
-      "parent_law_id": "ntpc-interior-renovation-review-rules",
-      "jurisdiction": "ntpc",
-      "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
-      "legal_status": "active",
-      "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
-      "source_locator": {
-        "point": "9",
-        "subpoint": null
-      },
-      "procedure_stage": [
-        "竣工查驗",
-        "變更使用併室內裝修竣工查驗"
-      ],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "supersedes": [],
-      "superseded_by": [],
-      "source_text_sha256": "3e67e14f59a7b3c83475913078346d7dd9a52bf718439bcb293617555f524ecf",
-      "normalization_note": "依 issue #18 現況查核之主題摘要整理，逐字條文與適用條件待官方來源比對後升級為 snapshot_verified。",
-      "text": "第9點規定消防安全設備有變更、妨礙或破壞時，應檢附條件式文件；設備無變更時不適用本點條件式要求。",
-      "required_documents": [],
-      "conditional_documents": [
-        "消防安全設備變更相關文件（設備有變更時）",
-        "妨礙或破壞消防安全設備之改善或復原文件（涉及妨礙或破壞時）"
-      ],
-      "deadlines": [],
-      "escalation_note": "消防安全設備有變更、妨礙或破壞情形應由人工確認並函請消防主管機關認定，本系統不做消防設計或改善是否合格之結論。",
-      "human_review_required": true
-    },
-    {
-      "source_id": "ntpc-interior-review-rule-point-10",
-      "parent_law_id": "ntpc-interior-renovation-review-rules",
-      "jurisdiction": "ntpc",
-      "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
-      "legal_status": "active",
-      "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
-      "source_locator": {
-        "point": "10",
-        "subpoint": null
-      },
-      "procedure_stage": [
-        "圖說審核",
-        "竣工查驗"
-      ],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "supersedes": [],
-      "superseded_by": [],
-      "source_text_sha256": "d0cf29946f082a4acc6e611ec6757a0ed250f3b12655ee3a6f12a2ef606164eb",
-      "normalization_note": "展延期間之確切天數與起算方式待官方來源比對後升級為 snapshot_verified；目前僅記錄 issue #18 查核所載之期限類別與展延次數限制。",
-      "text": "第10點規定圖說補正期限六個月、施工期限六個月並得展延一次、竣工查驗補正期限三個月；逾期未補正之效果需人工依個案確認。",
-      "required_documents": [],
-      "conditional_documents": [],
-      "deadlines": [
-        {
-          "item": "圖說補正",
-          "duration_iso8601": "P6M",
-          "duration_human": "六個月",
-          "extension_allowed": false,
-          "extension_count_limit": 0
-        },
-        {
-          "item": "施工期限",
-          "duration_iso8601": "P6M",
-          "duration_human": "六個月",
-          "extension_allowed": true,
-          "extension_count_limit": 1,
-          "extension_duration_iso8601": null,
-          "extension_duration_note": "展延期間長度待官方來源比對後確認"
-        },
-        {
-          "item": "竣工查驗補正",
-          "duration_iso8601": "P3M",
-          "duration_human": "三個月",
-          "extension_allowed": false,
-          "extension_count_limit": 0
-        }
-      ],
-      "escalation_note": null,
-      "human_review_required": true
-    },
-    {
-      "source_id": "ntpc-interior-review-rule-point-11",
-      "parent_law_id": "ntpc-interior-renovation-review-rules",
-      "jurisdiction": "ntpc",
-      "official_identifier": "C0170020",
-      "source_kind": "local_rule",
-      "representation": "normalized_requirement",
-      "legal_status": "active",
-      "promulgated_at": "2011-04-25",
-      "effective_from": null,
-      "effective_to": null,
-      "amended_at": null,
-      "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
-      "source_locator": {
-        "point": "11",
-        "subpoint": null
-      },
-      "procedure_stage": [
-        "圖說審核",
-        "竣工查驗",
-        "變更使用併室內裝修竣工查驗",
-        "簡易室內裝修"
-      ],
-      "retrieved_at": "2026-08-28",
-      "verified_at": "2026-08-28",
-      "supersedes": [],
-      "superseded_by": [],
-      "source_text_sha256": "0d0abe59d5e423b45e2649d70ec79014741428fe7889ff743cfc9281ca730c9c",
-      "normalization_note": "確切列舉之 escalation 條件待官方來源比對後升級為 snapshot_verified；目前僅記錄存在此類條件式函送規定。",
-      "text": "第11點規定特定情形應由承辦單位函送主管機關處理；具體列舉事由待逐條核對，本系統僅標記需人工確認是否符合函送情形，不做是否函送之最終認定。",
-      "required_documents": [],
-      "conditional_documents": [],
-      "deadlines": [],
-      "escalation_note": "案件符合第11點所定情形時應函送主管機關處理，本系統僅提示可能適用並要求人工確認，不做最終認定。",
-      "human_review_required": true
+      "historical_query_policy": "fail_closed_when_effective_from_unknown"
     }
   ],
   "articles": [
@@ -523,21 +255,25 @@
     {
       "law_id": "ntpc-interior-renovation-review-rules",
       "law_name": "新北市建築物室內裝修審核及查驗作業事項規範",
-      "article": "未定點次",
+      "article": "3",
       "paragraph": null,
       "item": null,
       "effective_date": null,
       "amendment_date": null,
+      "promulgated_at": "2011-04-25",
       "hierarchy": "local",
       "authority": "NTPC",
       "source_url": "https://web.law.ntpc.gov.tw/Scripts/FLAWDAT0202.aspx?fcode=C0170020",
       "source_authority_rank": 3,
       "source_license_status": "official_reference_only",
       "source_adapter_id": "ntpc-official-portal",
-      "verification_status": "pending_snapshot",
-      "referenced_by_source_pack": "ntpc-interior-procedure",
-      "verification_note": "先前把圖說審核／竣工查驗／變更使用併室內裝修竣工查驗／簡易室內裝修四程序摘要冒充第3點 exact snapshot 的錯誤引用已移除（issue #18 P0）；官方第3點並未列出這四類程序，相關內容分散於第5、8點等規定。本項僅作 pending lead 以保留法規名稱可被 verify_citation／get_article 找到，不得作為已驗證的條文引用；point-level 的正式結構化內容見 local_rule_units（representation=normalized_requirement）。",
-      "text": null
+      "verification_status": "snapshot_verified",
+      "representation": "source_snapshot",
+      "source_locator": {
+        "point": "3"
+      },
+      "citation_label": "第3點",
+      "text": "三、審查機構執行室內裝修審核及查驗業務，其有關申請流程及應檢附書圖文件除依本辦法及本府標準作業程序規定辦理外，由審查機構訂定相關作業事項送本府核備。"
     },
     {
       "law_id": "fire-services-act",
@@ -646,10 +382,7 @@
     "ntpc:簡易室內裝修": {
       "jurisdiction": "ntpc",
       "procedure_stage": "簡易室內裝修",
-      "canonical_official_term": "簡易申報",
-      "aliases": [
-        "簡易室內裝修"
-      ],
+      "canonical_procedure_term": "簡易申報",
       "supported": true,
       "required_documents": [
         "簡易室內裝修申請文件",
@@ -658,8 +391,8 @@
       ],
       "human_review_required": true,
       "notes": [
-        "超出簡易室內裝修範圍時需人工確認程序階段。",
-        "官方詞彙為「簡易申報」；「簡易室內裝修」為現行系統別名，輸出應優先顯示官方詞彙。"
+        "官方規範使用「簡易申報」；此 key 僅保留既有 API 相容性。",
+        "超出簡易申報範圍時需人工確認程序階段。"
       ]
     }
   }

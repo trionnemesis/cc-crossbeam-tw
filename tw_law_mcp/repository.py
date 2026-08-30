@@ -49,43 +49,6 @@ EXPECTED_DATA_FIXTURE_FILES = {
     "tw_scenario_queries.json",
     "ntpc_synthetic_cases.json",
 }
-BASE_SOURCE_UNIT_REQUIRED_FIELDS = {
-    "source_id",
-    "source_url",
-    "source_title",
-    "source_type",
-    "authority",
-    "authority_rank",
-    "license_status",
-    "crawl_policy",
-    "effective_date",
-    "amendment_date",
-    "retrieved_at",
-    "as_of_date",
-    "checksum",
-    "tags",
-    "jurisdiction",
-    "case_type",
-    "procedure_stage",
-    "domain_tags",
-}
-LOCAL_RULE_LIFECYCLE_FIELDS = (
-    "official_identifier",
-    "representation",
-    "legal_status",
-    "promulgated_at",
-    "effective_from",
-    "effective_to",
-    "amended_at",
-    "retrieved_at",
-    "verified_at",
-    "source_locator",
-    "supersedes",
-    "superseded_by",
-    "source_text_sha256",
-)
-VALID_LEGAL_STATUSES = {"active", "abolished", "superseded", "pending_reverification"}
-VALID_REPRESENTATIONS = {"snapshot_verified", "normalized_requirement", "discovery_reference"}
 SCENARIO_TOOL_NAMES = {
     "resolve_tw_scenario",
     "check_fire_equipment_routing",
@@ -143,30 +106,13 @@ def _normalize_terms(query: str) -> list[str]:
     return list(dict.fromkeys(term for term in terms if term))
 
 
-LEGAL_STATUS_UNSELECTABLE = {"abolished", "superseded", "pending_reverification"}
-
-
 def _effective_as_of(record: dict[str, Any], as_of_date: str | None) -> bool:
-    # A local-rule lifecycle record can carry a legal_status distinct from its
-    # dates (e.g. abolished but never dated as such). That status always wins,
-    # even with no as_of_date filter requested: an abolished/superseded/
-    # unreverified record is never current just because no date was asked about.
-    if record.get("legal_status") in LEGAL_STATUS_UNSELECTABLE:
-        return False
     if not as_of_date:
         return True
-    # Legacy central-article records key the field "effective_date"; local-rule
-    # lifecycle records use "effective_from". Neither name may be inferred from
-    # the other, so an unconfirmed date must stay null and fail closed here.
-    effective_date = record.get("effective_date") or record.get("effective_from")
+    effective_date = record.get("effective_date")
     if not isinstance(effective_date, str) or not effective_date:
         return False
-    if effective_date > as_of_date:
-        return False
-    effective_to = record.get("effective_to")
-    if isinstance(effective_to, str) and effective_to and as_of_date > effective_to:
-        return False
-    return True
+    return effective_date <= as_of_date
 
 
 # Fields the server derives from a human confirmation. A caller that sends them
@@ -513,34 +459,16 @@ class LawRepository:
                 continue
             if rule["rule_name"] != rule_name:
                 continue
-            lifecycle_fields = {
-                "official_identifier": rule.get("official_identifier"),
-                "legal_status": rule.get("legal_status"),
-                "representation": rule.get("representation"),
-                "promulgated_at": rule.get("promulgated_at"),
-                "effective_date": rule.get("effective_from"),
-                "effective_to": rule.get("effective_to"),
-                "amendment_date": rule.get("amended_at"),
-                "verified_at": rule.get("verified_at"),
-                "supersedes": rule.get("supersedes", []),
-                "superseded_by": rule.get("superseded_by", []),
-            }
             if not _effective_as_of(rule, as_of_date):
-                diff_reason = (
-                    "legal_status_unselectable"
-                    if rule.get("legal_status") in LEGAL_STATUS_UNSELECTABLE
-                    else "not_effective_as_of"
-                )
                 return {
                     "jurisdiction": normalized_jurisdiction,
                     "rule_name": rule_name,
                     "as_of_date": as_of_date,
                     "exists": False,
+                    "effective_date": rule.get("effective_date"),
                     "diff": "not_effective_as_of",
-                    "diff_reason": diff_reason,
                     "human_review_required": True,
                     "required_documents": [],
-                    **lifecycle_fields,
                 }
             return {
                 "jurisdiction": normalized_jurisdiction,
@@ -551,8 +479,9 @@ class LawRepository:
                 "law_name": rule["rule_name"],
                 "procedure_stages": rule["procedure_stages"],
                 "required_documents": rule["required_documents"],
+                "effective_date": rule["effective_date"],
+                "amendment_date": rule["amendment_date"],
                 "source_policy": self.get_source_policy(rule["source_url"]),
-                **lifecycle_fields,
             }
         return {
             "jurisdiction": normalized_jurisdiction,
@@ -561,95 +490,6 @@ class LawRepository:
             "exists": False,
             "required_documents": [],
             "handling": "未在 registry 找到正式在地規則，需人工確認。",
-        }
-
-    def list_local_rule_units(
-        self,
-        jurisdiction: str | None = None,
-        law_id: str | None = None,
-        procedure_stage: str | None = None,
-    ) -> list[dict[str, Any]]:
-        normalized_jurisdiction = jurisdiction.lower() if jurisdiction else None
-        units = []
-        for unit in self.data.get("local_rule_units", []):
-            if normalized_jurisdiction and unit.get("jurisdiction") != normalized_jurisdiction:
-                continue
-            if law_id and unit.get("parent_law_id") != law_id:
-                continue
-            if procedure_stage and procedure_stage not in (unit.get("procedure_stage") or []):
-                continue
-            units.append(dict(unit))
-        return units
-
-    def select_local_rule_lifecycle(
-        self,
-        jurisdiction: str,
-        law_id: str | None = None,
-        official_identifier: str | None = None,
-        as_of_date: str | None = None,
-    ) -> dict[str, Any]:
-        """Fail-closed version selection across ``local_rules`` lifecycle records.
-
-        Unlike :meth:`get_local_rule` (an exact ``rule_name`` lookup), this
-        resolves by law identity so a near-identical name (an abolished rule
-        replaced by an active one under a different title) cannot be picked by
-        accident: legal_status/effective_to exclude non-current records, and
-        more than one surviving candidate is reported as an overlap requiring
-        human confirmation rather than resolved by guessing.
-        """
-        normalized_jurisdiction = jurisdiction.lower()
-        candidates = [
-            dict(record)
-            for record in self.data.get("local_rules", [])
-            if record.get("jurisdiction") == normalized_jurisdiction
-            and (law_id is None or record.get("law_id") == law_id)
-            and (
-                official_identifier is None
-                or record.get("official_identifier") == official_identifier
-            )
-        ]
-        effective_candidates = [
-            record for record in candidates if _effective_as_of(record, as_of_date)
-        ]
-        if not effective_candidates:
-            return {
-                "exists": False,
-                "jurisdiction": normalized_jurisdiction,
-                "law_id": law_id,
-                "official_identifier": official_identifier,
-                "as_of_date": as_of_date,
-                "diff": "not_found" if not candidates else "no_effective_version",
-                "human_review_required": True,
-                "candidate_count": len(candidates),
-            }
-        if len(effective_candidates) > 1:
-            return {
-                "exists": False,
-                "jurisdiction": normalized_jurisdiction,
-                "law_id": law_id,
-                "official_identifier": official_identifier,
-                "as_of_date": as_of_date,
-                "diff": "version_overlap",
-                "human_review_required": True,
-                # All candidates share the same law_id (that is the grouping key),
-                # so report what actually distinguishes them for a reviewer.
-                "candidates": [
-                    {
-                        "official_identifier": record.get("official_identifier"),
-                        "promulgated_at": record.get("promulgated_at"),
-                        "legal_status": record.get("legal_status"),
-                        "source_url": record.get("source_url"),
-                    }
-                    for record in effective_candidates
-                ],
-            }
-        selected = effective_candidates[0]
-        return {
-            "exists": True,
-            "jurisdiction": normalized_jurisdiction,
-            "as_of_date": as_of_date,
-            "selected": selected,
-            "human_review_required": selected.get("legal_status") == "pending_reverification",
         }
 
     def detect_illegal_construction_reference(
@@ -1006,170 +846,6 @@ class LawRepository:
             "failures": failures,
         }
 
-    def _local_rule_lifecycle_records(self) -> list[dict[str, Any]]:
-        """Every record carrying the local-rule lifecycle contract.
-
-        Pulls from all three homes lifecycle fields can live in: the rule-level
-        ``local_rules`` registry, the point-level ``local_rule_units``, and any
-        source-pack ``source_units`` marked ``source_kind: local_rule``. Each
-        record is tagged with where it came from so failures point somewhere
-        concrete.
-        """
-        records = []
-        for rule in self.data.get("local_rules", []):
-            records.append(("local_rules", rule.get("law_id"), rule))
-        for unit in self.data.get("local_rule_units", []):
-            records.append(("local_rule_units", unit.get("source_id"), unit))
-        for pack in self._load_source_packs():
-            for unit in pack.get("source_units", []):
-                if unit.get("source_kind") == "local_rule":
-                    records.append(("source_units", unit.get("source_id"), unit))
-        return records
-
-    def run_local_rule_lifecycle_acceptance(self) -> dict[str, Any]:
-        """PR A gate: local-rule lifecycle contract (issue #18).
-
-        Checks, independently of ``run_source_policy_acceptance`` /
-        ``run_source_coverage_acceptance`` / ``run_jurisdiction_registry_acceptance``:
-        date-field semantics (retrieved_at/verified_at must not be copies of a
-        legal-event date), representation/citation consistency (a
-        snapshot_verified claim needs a locator and hash; a normalized_requirement
-        needs a normalization note and a hash that actually matches its text),
-        locator completeness, and version-overlap/abolished-source exclusion for
-        historical (as_of_date) lookups.
-        """
-        failures = []
-        records = self._local_rule_lifecycle_records()
-
-        for origin, record_id, record in records:
-            missing_keys = [field for field in LOCAL_RULE_LIFECYCLE_FIELDS if field not in record]
-            if missing_keys:
-                failures.append(
-                    {
-                        "gate": "lifecycle_fields_present",
-                        "reason": "missing_lifecycle_keys",
-                        "details": {"origin": origin, "id": record_id, "missing": missing_keys},
-                    }
-                )
-                continue
-
-            for date_field in ("promulgated_at", "effective_from", "amended_at"):
-                legal_value = record.get(date_field)
-                if not legal_value:
-                    continue
-                retrieved_date = (record.get("retrieved_at") or "")[:10]
-                verified_date = (record.get("verified_at") or "")[:10]
-                if retrieved_date and retrieved_date == legal_value:
-                    failures.append(
-                        {
-                            "gate": "processing_dates_not_backfilled",
-                            "reason": "retrieved_at_copies_legal_date",
-                            "details": {"origin": origin, "id": record_id, "field": date_field},
-                        }
-                    )
-                if verified_date and verified_date == legal_value:
-                    failures.append(
-                        {
-                            "gate": "processing_dates_not_backfilled",
-                            "reason": "verified_at_copies_legal_date",
-                            "details": {"origin": origin, "id": record_id, "field": date_field},
-                        }
-                    )
-
-            representation = record.get("representation")
-            if representation not in VALID_REPRESENTATIONS:
-                failures.append(
-                    {
-                        "gate": "representation_valid",
-                        "reason": "unknown_representation",
-                        "details": {"origin": origin, "id": record_id, "representation": representation},
-                    }
-                )
-            elif representation == "snapshot_verified":
-                if not record.get("source_text_sha256") or not record.get("source_locator"):
-                    failures.append(
-                        {
-                            "gate": "snapshot_verified_requires_hash_and_locator",
-                            "reason": "snapshot_verified_missing_hash_or_locator",
-                            "details": {"origin": origin, "id": record_id},
-                        }
-                    )
-            elif representation == "normalized_requirement":
-                text = record.get("text") or ""
-                stored_hash = record.get("source_text_sha256")
-                if not record.get("normalization_note"):
-                    failures.append(
-                        {
-                            "gate": "normalized_requirement_requires_note",
-                            "reason": "missing_normalization_note",
-                            "details": {"origin": origin, "id": record_id},
-                        }
-                    )
-                if not stored_hash:
-                    failures.append(
-                        {
-                            "gate": "normalized_requirement_requires_hash",
-                            "reason": "missing_source_text_hash",
-                            "details": {"origin": origin, "id": record_id},
-                        }
-                    )
-                elif text and stored_hash != _checksum(text):
-                    failures.append(
-                        {
-                            "gate": "source_text_hash_matches_text",
-                            "reason": "hash_does_not_match_recorded_text",
-                            "details": {"origin": origin, "id": record_id},
-                        }
-                    )
-            elif representation == "discovery_reference":
-                if record.get("requirement_evidence") is not False:
-                    failures.append(
-                        {
-                            "gate": "discovery_reference_not_requirement_evidence",
-                            "reason": "discovery_reference_missing_requirement_evidence_false",
-                            "details": {"origin": origin, "id": record_id},
-                        }
-                    )
-
-            legal_status = record.get("legal_status")
-            if legal_status is not None and legal_status not in VALID_LEGAL_STATUSES:
-                failures.append(
-                    {
-                        "gate": "legal_status_valid",
-                        "reason": "unknown_legal_status",
-                        "details": {"origin": origin, "id": record_id, "legal_status": legal_status},
-                    }
-                )
-
-        overlap_groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
-        for rule in self.data.get("local_rules", []):
-            key = (rule.get("jurisdiction"), rule.get("law_id"))
-            overlap_groups.setdefault(key, []).append(rule)
-        for (jurisdiction, law_id), group in overlap_groups.items():
-            active_windows = [
-                record
-                for record in group
-                if record.get("legal_status") not in LEGAL_STATUS_UNSELECTABLE
-            ]
-            if len(active_windows) > 1:
-                failures.append(
-                    {
-                        "gate": "no_unresolved_version_overlap",
-                        "reason": "multiple_active_records_for_same_law",
-                        "details": {"jurisdiction": jurisdiction, "law_id": law_id},
-                    }
-                )
-
-        return {
-            "all_passed": not failures,
-            "failures": failures,
-            "record_count": len(records),
-            "records_by_origin": {
-                origin: sum(1 for item_origin, _, _ in records if item_origin == origin)
-                for origin in {item_origin for item_origin, _, _ in records}
-            },
-        }
-
     def run_packaging_acceptance(self) -> dict[str, Any]:
         failures = []
         codex_config = self._load_codex_mcp_config()
@@ -1253,7 +929,6 @@ class LawRepository:
         two_stage_flow = self.run_two_stage_flow_acceptance()
         procedure_hitl = self._run_procedure_hitl_acceptance()
         metadata_extraction = self._run_metadata_extraction_acceptance()
-        local_rule_lifecycle = self.run_local_rule_lifecycle_acceptance()
         gates = {
             "p0_source_policy": source_policy["all_passed"],
             "source_coverage": source_coverage["all_passed"],
@@ -1266,7 +941,6 @@ class LawRepository:
             "split_data_layout": data_layout["all_passed"],
             "source_adapters": source_adapters["all_passed"],
             "two_stage_flow": two_stage_flow["all_passed"],
-            "local_rule_lifecycle": local_rule_lifecycle["all_passed"],
         }
         return {
             "all_passed": all(gates.values()),
@@ -1290,7 +964,6 @@ class LawRepository:
                 "split_data_layout": data_layout,
                 "source_adapters": source_adapters,
                 "two_stage_flow": two_stage_flow,
-                "local_rule_lifecycle": local_rule_lifecycle,
             },
         }
 
@@ -1558,21 +1231,28 @@ class LawRepository:
                 }
             )
         for unit in source_units:
-            required_fields = set(BASE_SOURCE_UNIT_REQUIRED_FIELDS)
-            # A local-rule unit has no confirmed legal effective/amendment date
-            # (that is the whole point of the lifecycle contract: an
-            # unconfirmed date must stay null, not get backfilled). It must
-            # instead show its promulgation date. A discovery-only portal
-            # reference is not a legal instrument at all, so neither triad
-            # applies to it.
-            if unit.get("source_kind") == "local_rule":
-                required_fields -= {"effective_date", "amendment_date"}
-                required_fields |= {"promulgated_at"}
-            elif unit.get("representation") == "discovery_reference":
-                required_fields -= {"effective_date", "amendment_date"}
             missing = [
                 field
-                for field in required_fields
+                for field in {
+                    "source_id",
+                    "source_url",
+                    "source_title",
+                    "source_type",
+                    "authority",
+                    "authority_rank",
+                    "license_status",
+                    "crawl_policy",
+                    "effective_date",
+                    "amendment_date",
+                    "retrieved_at",
+                    "as_of_date",
+                    "checksum",
+                    "tags",
+                    "jurisdiction",
+                    "case_type",
+                    "procedure_stage",
+                    "domain_tags",
+                }
                 if self._missing_scenario_value(unit.get(field))
             ]
             if missing:
@@ -1864,41 +1544,6 @@ class LawRepository:
                     "human_review_required": True,
                 }
             )
-
-        matched_units = self.list_local_rule_units(
-            jurisdiction=jurisdiction, procedure_stage=procedure_stage
-        )
-        for unit in matched_units:
-            locator = unit.get("source_locator")
-            for document in unit.get("required_documents", []):
-                checklist.append(
-                    {
-                        "label": document,
-                        "status": "required",
-                        "human_review_required": True,
-                        "source_locator": locator,
-                    }
-                )
-            for document in unit.get("conditional_documents", []):
-                checklist.append(
-                    {
-                        "label": document,
-                        "status": "conditional",
-                        "human_review_required": True,
-                        "source_locator": locator,
-                    }
-                )
-        deadlines = [
-            {**deadline, "source_locator": unit.get("source_locator")}
-            for unit in matched_units
-            for deadline in unit.get("deadlines", [])
-        ]
-        escalation_conditions = [
-            {"note": unit["escalation_note"], "source_locator": unit.get("source_locator")}
-            for unit in matched_units
-            if unit.get("escalation_note")
-        ]
-
         return {
             "artifact_name": (
                 "change_use_interior_overlay.json"
@@ -1911,8 +1556,6 @@ class LawRepository:
             "jurisdiction": jurisdiction,
             "checklist": checklist,
             "checklist_labels": [item["label"] for item in checklist],
-            "deadlines": deadlines,
-            "escalation_conditions": escalation_conditions,
             "fail_closed_policy": "文件缺漏不得補完臆測",
             "source_units": self._source_unit_refs("procedure"),
         }
@@ -2949,9 +2592,11 @@ class LawRepository:
                 "77-2",
                 ("供公眾使用", "審查許可"),
             ),
-            # No New Taipei local-rule marker group here: its old "article 3" entry
-            # was a fabricated citation (issue #18 P0). Local-rule procedure content
-            # now comes from local_rule_units, not a central-style article citation.
+            (
+                "新北市建築物室內裝修審核及查驗作業事項規範",
+                "3",
+                ("圖說審核", "竣工查驗", "變更使用", "簡易室內裝修"),
+            ),
             # Fire and compartment markers resolve to articles that are still
             # pending_snapshot, so they surface a candidate law and a source link
             # for the reviewer rather than a citation.

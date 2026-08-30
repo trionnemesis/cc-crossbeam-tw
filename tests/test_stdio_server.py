@@ -548,10 +548,7 @@ class StdioServerTests(unittest.TestCase):
             self.assertEqual(len(acceptance_payload["failed_cases"]), 12)
             self.assertEqual(
                 {failure["gate"] for failure in acceptance_payload["gate_failures"]},
-                # citation_exists: New Taipei procedure fixture items resolve to a
-                # pending lead instead of a fabricated exact-article snapshot
-                # (issue #18 P0).
-                {"claim_supported", "citation_exists"},
+                {"claim_supported"},
             )
 
             hitl_payload = json.loads(hitl_confirmation["result"]["content"][0]["text"])
