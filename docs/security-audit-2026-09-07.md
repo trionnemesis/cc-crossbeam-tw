@@ -55,7 +55,7 @@ an unreachable advisory on a package is no guarantee about the next one.
 | Change | From → to | Kind | Why this version |
 | --- | --- | --- | --- |
 | `next`, `eslint-config-next` | 16.2.10 → 16.3.4 | semver-minor | patched line ≥ 16.2.11; 16.3.4 is `latest`; pulls fixed `postcss`/`sharp` |
-| `better-auth`, `@better-auth/drizzle-adapter` | 1.6.23 → 1.7.3 | semver-minor | 1.7 makes `drizzle-kit` an optional peer, removing the esbuild-kit chain; 1.7.3 is `latest` (published 2026-09-06) |
+| `better-auth`, `@better-auth/drizzle-adapter` | 1.6.23 → 1.7.3 | semver-minor | fixes `GHSA-537c-gmf6-5ccf`; the reinstall below also flushed a stale resolved `drizzle-kit`/esbuild-kit chain (see below — `drizzle-kit` was already an optional peer at 1.6.23, this was not a 1.7 change); 1.7.3 is `latest` (published 2026-09-06) |
 | transitive (`nanoid`, `brace-expansion`, `browserslist`, `js-yaml`, `undici`) | — | `npm audit fix` | semver-compatible only; no `--force` |
 
 Existence of each target version was checked against the registry before
@@ -79,19 +79,66 @@ pair and reinstalling both at 1.7.3 — **not** by `--legacy-peer-deps` or
   `import "./.next/types/root-params.d.ts"`. Verified that `tsc --noEmit`
   still passes on a tree **without** `.next`, so CI's typecheck-before-build
   order is unaffected.
-- **New surface: `@better-auth/telemetry` 1.7.3** arrived with the minor
-  bump. Read, not assumed:
+- **`@better-auth/telemetry`, pre-existing, not new with this bump.**
+  Corrected after review (thanks @chatgpt-codex-connector on #23): the
+  original text here called this "new surface" arriving with 1.7. It does
+  not. `better-auth@1.6.23`'s own `dependencies` already listed
+  `@better-auth/telemetry@1.6.23`, and it was already resolved in the
+  pre-PR lockfile — confirmed against `web/package-lock.json` at `8de9706`
+  (the commit before this audit's changes), not just registry metadata.
+  1.6.23 was never separately audited for it, because nothing in this repo's
+  history had. Read now, not assumed:
   - enabled only if `telemetry.enabled === true` or `BETTER_AUTH_TELEMETRY`
-    is truthy (`options.telemetry?.enabled ?? false`);
+    is truthy (`options.telemetry?.enabled ?? false`); this was equally true
+    at 1.6.23 — same gate, same default;
   - additionally a no-op unless `BETTER_AUTH_TELEMETRY_ENDPOINT` is set (no
-    hard-coded endpoint in this version);
+    hard-coded endpoint in either version);
   - payload is config shape (booleans for hooks, plugin ids), runtime /
     framework / database / package-manager detection, and an anonymous
     project id derived from `baseURL`. No user or request data.
   - Decision: pinned `telemetry: { enabled: false }` in `buildAuth` and added
     a test that asserts it, so neither a future library default nor the host
     environment decides this for a process on the customer-data boundary.
-  - Status: **confirmed (new surface), mitigated**.
+    The pin closes the gap retroactively for 1.6.23's behavior too, not only
+    1.7.3's.
+  - Status: **confirmed (pre-existing since at least 1.6.23), mitigated**.
+
+## Correction to the `drizzle-kit` / esbuild-kit remediation claim
+
+Also raised in review on #23, also verified against the actual pre-PR
+lockfile rather than taking the original write-up at its word.
+
+**Original claim:** "1.7 makes `drizzle-kit` an optional peer, removing the
+esbuild-kit chain." **Wrong.** `drizzle-kit` was already
+`peerDependenciesMeta: { "drizzle-kit": { "optional": true } }` on
+`better-auth@1.6.23` — confirmed against both the registry and the pre-PR
+lockfile at `8de9706`. 1.7 did not change that declaration.
+
+What actually happened, reproduced in an isolated `npm install` outside this
+repo: a bare install of `better-auth@1.6.23` alone, and of
+`better-auth@1.6.23` alongside `drizzle-orm@0.45.2` as a sibling — the two
+packages actually present in this project — does **not** resolve
+`drizzle-kit` at all, at either 1.6.23 or 1.7.3. The optional peer sits
+unsatisfied and npm leaves it out, in both versions. So `drizzle-kit@0.31.10`
+sitting resolved in the pre-PR `web/package-lock.json` was a stale artifact
+of that lockfile's install history, not something either version's
+declarations require.
+
+The chain actually disappeared because remediation uninstalled
+`better-auth`/`@better-auth/drizzle-adapter` and reinstalled both fresh,
+which forced npm to re-resolve the whole dependency set from scratch rather
+than build on the existing lockfile. That fresh resolution simply didn't
+pull the optional peer in — matching the reproduction above. The `npm audit
+fix` step afterward found nothing left to do on this chain because it was
+already gone.
+
+Practical effect on the finding: none. The reachability triage on
+`esbuild`/`@esbuild-kit/*` (GHSA-67mh-4wv8-2f99 — requires the esbuild dev
+server running, which this project never starts) stands regardless of why
+the chain is gone. The fix stands too — the packages are no longer resolved,
+however that came about. Only the *causal story* in the original write-up
+was wrong, and it is corrected here rather than silently edited, so the
+review comment and this record read the same way going forward.
 
 ## Python
 
