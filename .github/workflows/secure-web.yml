@@ -125,9 +125,19 @@ jobs:
       # how to review a new one instead of silencing the step.
       - name: Secret scan against the committed baseline
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # The scanner flags its own pin: "secrets==1.5.0" reads as a keyword
           # assignment. Allowlisted inline rather than loosening the pin.
           python3 -m pip install --quiet detect-secrets==1.5.0  # pragma: allowlist secret
-          git ls-files -z | grep -zvE '\.png$|package-lock\.json$' \
-            | xargs -0 detect-secrets-hook --baseline .secrets.baseline
+          mapfile -d '' files < <(git ls-files -z | grep -zvE '\.png$|package-lock\.json$')
+          # Called directly, not through xargs: xargs folds every non-zero code
+          # into 123, and the hook's codes carry the verdict. 0 = clean;
+          # 3 = nothing new, the baseline only needed line numbers refreshed
+          # (an unrelated edit above a known fixture); 1 = a candidate the
+          # baseline does not know, which is the only case that should be red.
+          detect-secrets-hook --baseline .secrets.baseline "${files[@]}"; rc=$?
+          case "$rc" in
+            0) echo "secret scan: clean" ;;
+            3) echo "secret scan: no new candidates (baseline line numbers drifted; refresh it locally)" ;;
+            *) echo "secret scan: new candidate(s) not in .secrets.baseline (exit $rc)"; exit 1 ;;
+          esac
