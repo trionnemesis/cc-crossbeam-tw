@@ -3,6 +3,14 @@ import { buildAuth } from "@/src/auth/server";
 import { parseRuntimeConfig } from "@/src/config/runtime";
 import { createMemoryDatabase, type LocalDatabase } from "@/src/db/local";
 
+// better-auth 1.7 makes createUser take the provisioning source explicitly so the
+// user.validateUserInfo gate knows how the identity arrived. These tests model the
+// Google sign-in path the allowlist actually guards.
+const googleProvisioning = {
+  method: "oauth",
+  oauth: { providerId: "google", profile: {} }
+} as const;
+
 let database: LocalDatabase | undefined;
 
 afterEach(() => {
@@ -57,13 +65,26 @@ describe("Better Auth local boundary", () => {
       email: "OWNER@example.test",
       emailVerified: true,
       ...timestamps
-    })).resolves.toMatchObject({ email: "owner@example.test" });
+    }, googleProvisioning)).resolves.toMatchObject({ email: "owner@example.test" });
     await expect(context.internalAdapter.createUser({
       name: "Intruder",
       email: "intruder@example.test",
       emailVerified: true,
       ...timestamps
-    })).resolves.toBeNull();
+    }, googleProvisioning)).resolves.toBeNull();
+  });
+
+  it("keeps upstream telemetry switched off regardless of the library default", () => {
+    database = createMemoryDatabase();
+    const config = parseRuntimeConfig({
+      APP_MODE: "local",
+      APP_ORIGIN: "http://127.0.0.1:3000"
+    });
+    const auth = buildAuth(config, database, "x".repeat(48));
+    // Pinned explicitly: @better-auth/telemetry arrived in a minor release and
+    // reads an env var too, so neither the library default nor the environment
+    // may decide this for a process on the customer-data boundary.
+    expect(auth.options.telemetry?.enabled).toBe(false);
   });
 
   it("refuses a new session once the owner allowlist no longer covers the account", async () => {
@@ -91,7 +112,7 @@ describe("Better Auth local boundary", () => {
       email: "owner@example.test",
       emailVerified: true,
       ...timestamps
-    });
+    }, googleProvisioning);
     expect(owner).not.toBeNull();
     await expect(
       before.internalAdapter.createSession(owner!.id)
