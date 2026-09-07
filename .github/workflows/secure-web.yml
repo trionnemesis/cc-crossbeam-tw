@@ -126,6 +126,8 @@ jobs:
       - name: Secret scan against the committed baseline
         run: |
           set -euo pipefail
-          python3 -m pip install --quiet detect-secrets==1.5.0
+          # The scanner flags its own pin: "secrets==1.5.0" reads as a keyword
+          # assignment. Allowlisted inline rather than loosening the pin.
+          python3 -m pip install --quiet detect-secrets==1.5.0  # pragma: allowlist secret
           git ls-files -z | grep -zvE '\.png$|package-lock\.json$' \
             | xargs -0 detect-secrets-hook --baseline .secrets.baseline
