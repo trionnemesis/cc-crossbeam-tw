@@ -133,6 +133,57 @@ print(masked.text, find_residual_sensitive_classes(masked.text))
 The detector's class names are safe to log; the matched text is not, and the
 exception deliberately carries only the class list.
 
+## Dependency and secret scanning
+
+CI runs a `security-scan` job beside `verify`. It is deliberately separate so a
+red result means a finding, not a failing test.
+
+- `npm audit --omit=dev --audit-level=high` on the tree that ships. Blocking.
+- `npm audit` on the full tree, including lint and test tooling. Informational.
+- `detect-secrets-hook` over every tracked file against `.secrets.baseline`.
+  Blocking on a candidate the baseline does not already know.
+
+### When the dependency step goes red
+
+Do not add `--force`, an ignore list, or `continue-on-error`. Triage the advisory
+against this application and write the result down in
+`docs/security-audit-<date>.md` under confirmed, deferred, or suppressed:
+
+1. Is the package in the production tree (`npm ls <pkg> --omit=dev`) or only
+   pulled in by eslint, vitest or the build?
+2. Does the advisory's precondition exist here? Read the advisory itself — the
+   preconditions are usually narrow (a middleware file, a Server Action, a
+   custom server, a specific call pattern). Grep for the pattern; state what
+   you found.
+3. Is there a semver-compatible fix? Prefer it even when the finding is
+   unreachable, because the next advisory on the same package may not be.
+4. Re-run the full verify job plus the cross-process acceptance before merging.
+
+### When the secret step goes red
+
+`detect-secrets` flags shapes, not proof: high-entropy hex, `secret`-like
+assignments, `user:password@` URLs. Every entry in the baseline today is a
+test fixture or a content hash. For a new candidate:
+
+- If it is a real credential, treat it as leaked: rotate it first, then remove
+  it. Removing it from the working tree does not remove it from history.
+- If it is a fixture or hash, refresh the baseline and record why:
+
+```sh
+detect-secrets scan --baseline .secrets.baseline
+detect-secrets audit .secrets.baseline   # mark each new entry as reviewed
+```
+
+Commit the baseline with the change that introduced the candidate so the
+review is in the same diff.
+
+### Python
+
+The Python packages have no third-party runtime dependencies
+(`pyproject.toml` declares `dependencies = []`), so there is nothing for a
+Python advisory scanner to check. If that ever changes, add `pip-audit` to the
+`security-scan` job in the same commit that adds the dependency.
+
 ## Law corpus verification
 
 Some articles are in the corpus as references without their text. They are marked

@@ -80,3 +80,64 @@ jobs:
           done
           cd web
           npm run acceptance:upload
+
+  # Dependency advisories and secrets. Kept as its own job so a red result is
+  # attributable to a finding rather than to a test or build failure, and so
+  # the verify job stays a pure functional gate.
+  security-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22.22.3"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci --no-audit --no-fund
+
+      # Blocking: anything high or critical in the tree that actually ships.
+      # A new upstream advisory turns this red on purpose — the response is a
+      # reachability triage recorded in docs/security-audit-*.md, not a bypass.
+      - name: Dependency advisories — production tree (blocking)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
+
+      # Informational: lint/test-time dependencies. Reported, never blocking.
+      - name: Dependency advisories — full tree (informational)
+        working-directory: web
+        continue-on-error: true
+        run: npm audit
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+
+      # Fails only on a candidate not already in .secrets.baseline. Known
+      # candidates are test fixtures and content hashes; see the runbook for
+      # how to review a new one instead of silencing the step.
+      - name: Secret scan against the committed baseline
+        run: |
+          set -uo pipefail
+          # The scanner flags its own pin: "secrets==1.5.0" reads as a keyword
+          # assignment. Allowlisted inline rather than loosening the pin.
+          python3 -m pip install --quiet detect-secrets==1.5.0  # pragma: allowlist secret
+          mapfile -d '' files < <(git ls-files -z | grep -zvE '\.png$|package-lock\.json$')
+          # Called directly, not through xargs: xargs folds every non-zero code
+          # into 123, and the hook's codes carry the verdict. 0 = clean;
+          # 3 = nothing new, the baseline only needed line numbers refreshed
+          # (an unrelated edit above a known fixture); 1 = a candidate the
+          # baseline does not know, which is the only case that should be red.
+          detect-secrets-hook --baseline .secrets.baseline "${files[@]}"; rc=$?
+          case "$rc" in
+            0) echo "secret scan: clean" ;;
+            3) echo "secret scan: no new candidates (baseline line numbers drifted; refresh it locally)" ;;
+            *) echo "secret scan: new candidate(s) not in .secrets.baseline (exit $rc)"; exit 1 ;;
+          esac

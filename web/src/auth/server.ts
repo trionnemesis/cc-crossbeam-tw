@@ -29,6 +29,11 @@ export function buildAuth(config: RuntimeConfig, database: LocalDatabase, secret
     baseURL: config.APP_ORIGIN,
     basePath: "/api/auth",
     secret,
+    // better-auth 1.7 ships @better-auth/telemetry. It is opt-in upstream today,
+    // but this process sits on the customer-data boundary, so the decision is
+    // made here rather than inherited from a default that a future minor can
+    // flip. tests/better-auth.test.ts pins it.
+    telemetry: { enabled: false },
     trustedOrigins: [config.APP_ORIGIN],
     database: drizzleAdapter(database.db, {
       provider: "sqlite",
