@@ -223,6 +223,40 @@ policy, then add the article — as `pending_snapshot` if its text is not yet sn
 The coverage gate fails when a pack references an article the corpus lacks, which is
 what caught the original 消防法/建築技術規則 gap.
 
+## Accessibility (R11)
+
+What CI enforces on every push (`npm run test:run`):
+
+- `web/tests/a11y-contrast.test.ts` reads the tokens in `web/app/globals.css` and fails
+  if any text pair drops below 4.5:1 or any field border, dropzone border, or focus ring
+  drops below 3:1 (WCAG 2.2 AA, SC 1.4.3 / 1.4.11). Add a pair there whenever a new
+  foreground/background combination ships.
+- `web/tests/a11y-structure.test.ts` checks the skip link is the first element in
+  `<body>`, every page has exactly one `<main id="main-content" tabIndex={-1}>`, the
+  sr-only file input draws its focus ring on the dropzone, and ink panels switch the
+  focus ring to white.
+
+Contrast fixes made when the palette was first measured (issue #25):
+
+| Pair | Before | After |
+| --- | --- | --- |
+| Landing `--quiet` text on white | `#94a3b8` 2.56:1 | `#64748b` 4.76:1 |
+| Landing primary button, white on `--accent` | `#3b82f6` 3.68:1 | `#2563eb` 5.17:1 |
+| LINE link button text on `#06c755` | white 2.26:1 | `--ink` 6.68:1 |
+| Text-field border on white | `--border` 1.47:1 | `--field-border` 3.56:1 |
+| Focus ring inside the ink sidebar | `--interactive` 2.17:1 | white 15.06:1 |
+
+Not yet gated or not yet done — R11 is **not** fully verified:
+
+- The browser axe scan is manual. It was last run with axe-core against a local
+  production build on seven of the eight routes (`/`, `/sign-in`, `/cases`,
+  `/cases/[caseId]`, `/review`, `/sources`, `/admin`) with WCAG 2.0/2.1/2.2 A+AA tags:
+  0 violations. `/link/line` redirects without a valid LINE token and was not scanned;
+  its only new color pair is covered by the contrast test. Putting axe in CI needs a
+  browser dependency in `web/package.json` and is tracked in issue #25.
+- No screen-reader walkthrough (NVDA/VoiceOver) and no real-device mobile check has
+  been recorded.
+
 ## Backup, retention, and incident response
 
 1. Back up the encrypted `.runtime/secure-web.sqlite` and sanitized artifacts only to an

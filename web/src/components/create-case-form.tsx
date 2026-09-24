@@ -43,7 +43,7 @@ export function CreateCaseForm() {
       <label className="block text-xs font-medium text-[var(--muted)]" htmlFor="case-title">案件名稱</label>
       <input
         autoFocus
-        className="mt-2 min-h-11 w-full rounded-[6px] border border-[var(--border)] px-3 text-sm"
+        className="mt-2 min-h-11 w-full rounded-[6px] border border-[var(--field-border)] px-3 text-sm"
         id="case-title"
         maxLength={80}
         minLength={2}

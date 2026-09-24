@@ -30,7 +30,7 @@ export function ReviewQuestionForm({ questionId, prompt }: { questionId: string;
     <form className="rounded-[6px] border border-[var(--border)] bg-white p-5" onSubmit={submit}>
       <label className="block text-sm leading-6 text-[var(--ink)]" htmlFor={`answer-${questionId}`}>{prompt}</label>
       <textarea
-        className="mt-4 min-h-28 w-full rounded-[6px] border border-[var(--border)] p-3 text-sm"
+        className="mt-4 min-h-28 w-full rounded-[6px] border border-[var(--field-border)] p-3 text-sm"
         id={`answer-${questionId}`}
         maxLength={2000}
         onChange={(event) => setAnswer(event.target.value)}

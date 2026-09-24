@@ -21,7 +21,7 @@ export default async function SourcesPage() {
     unique.set(`${source.lawName}|${source.article}|${source.sourceUrl}`, source);
   }
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 md:px-10 md:py-12">
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-5xl px-5 py-8 md:px-10 md:py-12">
       <p className="text-xs tracking-[0.16em] text-[var(--muted)] uppercase">Source-bound evidence</p>
       <h1 className="mt-3 text-4xl font-light tracking-[-0.04em] text-[var(--ink)] md:text-5xl">法源</h1>
       <p className="mt-4 max-w-2xl leading-7 text-[var(--muted)]">此處只顯示已進入案件 law snapshot 的法源。即時網頁搜尋不能直接作為權威依據。</p>

@@ -110,7 +110,7 @@ export function SecureUpload({ caseId }: { caseId: string }) {
         </div>
       </div>
 
-      <label className="mt-7 block rounded-[6px] border border-dashed border-[var(--accent)] bg-[var(--canvas)] p-6 text-center">
+      <label className="dropzone mt-7 block rounded-[6px] border border-dashed border-[var(--accent)] bg-[var(--canvas)] p-6 text-center">
         <FileUp aria-hidden="true" className="mx-auto text-[var(--interactive)]" size={28} />
         <span className="mt-3 block text-sm font-medium text-[var(--ink)]">選擇案件文件</span>
         <span className="mt-1 block text-xs text-[var(--muted)]">最大 25 MB；目前僅開放 UTF-8 TXT</span>

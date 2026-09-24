@@ -23,5 +23,5 @@ export function LineLinkButton({ linkToken }: { linkToken: string }) {
     window.location.assign(payload.redirectUrl);
   }
 
-  return <div><button className="min-h-11 rounded-[6px] bg-[#06c755] px-6 text-sm font-medium text-white disabled:opacity-50" disabled={pending} onClick={link} type="button">繼續綁定 LINE</button>{error ? <p className="mt-3 text-sm text-[var(--danger)]" role="alert">{error}</p> : null}</div>;
+  return <div><button className="min-h-11 rounded-[6px] bg-[#06c755] px-6 text-sm font-medium text-[var(--ink)] disabled:opacity-50" disabled={pending} onClick={link} type="button">繼續綁定 LINE</button>{error ? <p className="mt-3 text-sm text-[var(--danger)]" role="alert">{error}</p> : null}</div>;
 }

@@ -18,7 +18,7 @@ invitation or reviewer onboarding flow yet.
 | R8 | Case/HITL/evidence workflow | Secure app routes and services | Workflow/browser tests |
 | R9 | Audit, retention, and verified deletion | Audit and deletion services | Deletion acceptance |
 | R10 | Production configuration fails closed | Runtime config validator | Production-negative tests |
-| R11 | Accessible architectural editorial UI | Design tokens and accessible components | WCAG/keyboard/mobile checks |
+| R11 | Accessible architectural editorial UI | Design tokens and accessible components | Contrast + keyboard-structure tests; axe, screen-reader and mobile checks still manual (see runbook) |
 | R12 | Deployment path to GCP Taiwan region | Cloud Run/SQL/GCS/Tasks manifests | Config and container acceptance |
 
 ## Runtime topology

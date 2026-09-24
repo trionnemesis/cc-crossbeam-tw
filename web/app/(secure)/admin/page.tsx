@@ -13,7 +13,7 @@ export default async function AdminPage() {
   const summary = safeConfigSummary(config);
   const lineLinked = await new LineLinkService(getLocalDatabase(config)).isLinked(session.user.id);
   return (
-    <main className="mx-auto max-w-4xl px-5 py-8 md:px-10 md:py-12">
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-4xl px-5 py-8 md:px-10 md:py-12">
       <p className="text-xs tracking-[0.16em] text-[var(--muted)] uppercase">Privacy and account</p>
       <h1 className="mt-3 text-4xl font-light tracking-[-0.04em] text-[var(--ink)] md:text-5xl">帳號與資料</h1>
       <div className="mt-8 grid gap-5 md:grid-cols-2">
