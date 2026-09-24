@@ -33,7 +33,10 @@ export async function generateMetadata(): Promise<Metadata> {
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="zh-Hant">
-      <body>{children}</body>
+      <body>
+        <a className="skip-link" href="#main-content">跳至主要內容</a>
+        {children}
+      </body>
     </html>
   );
 }

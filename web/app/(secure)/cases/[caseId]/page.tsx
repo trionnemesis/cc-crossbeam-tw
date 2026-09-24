@@ -55,7 +55,7 @@ export default async function CaseDetailPage({
   ]);
   const analysis = analyses.find((item) => item.id === query.run) ?? analyses[0] ?? null;
   return (
-      <main className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-12">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-12">
         <Link className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--muted)]" href="/cases"><ArrowLeft size={17} />返回案件</Link>
         <header className="mt-6 border-b border-[var(--border)] pb-8">
           <p className="text-xs tracking-[0.16em] text-[var(--muted)] uppercase">{caseItem.jurisdiction} · {caseItem.procedureStage}</p>
@@ -65,7 +65,7 @@ export default async function CaseDetailPage({
 
         <div className="grid gap-6 py-8 lg:grid-cols-[1.08fr_0.92fr]">
           <SecureUpload caseId={caseId} />
-          <section aria-labelledby="boundary-title" className="rounded-[6px] bg-[var(--ink)] p-7 text-white">
+          <section aria-labelledby="boundary-title" className="on-dark rounded-[6px] bg-[var(--ink)] p-7 text-white">
             <FileLock2 aria-hidden="true" className="text-white/70" size={27} />
             <h2 className="mt-7 text-2xl font-light" id="boundary-title">本案件資料邊界</h2>
             <ul className="mt-6 space-y-4 text-sm leading-6 text-white/70">

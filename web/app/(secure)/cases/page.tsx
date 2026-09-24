@@ -25,7 +25,7 @@ export default async function CasesPage() {
   const cases = await store.listCases(session.user.id);
 
   return (
-    <main className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-12">
+    <main id="main-content" tabIndex={-1} className="mx-auto max-w-6xl px-5 py-8 md:px-10 md:py-12">
       <header className="flex flex-col gap-6 border-b border-[var(--border)] pb-8 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs tracking-[0.18em] text-[var(--muted)] uppercase">Secure workspace</p>

@@ -18,7 +18,7 @@ export default async function SecureLayout({ children }: { children: ReactNode }
 
   return (
     <div className="min-h-screen md:grid md:grid-cols-[250px_1fr]">
-      <aside className="hidden border-r border-[var(--border)] bg-[var(--ink)] p-7 text-white md:flex md:flex-col">
+      <aside className="on-dark hidden border-r border-[var(--border)] bg-[var(--ink)] p-7 text-white md:flex md:flex-col">
         <Link className="text-sm tracking-[0.16em] uppercase" href="/cases">Crossbeam TW</Link>
         <nav aria-label="主要導覽" className="mt-16 space-y-2">
           {navigation.map(({ href, label, icon: Icon }) => (

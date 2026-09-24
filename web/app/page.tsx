@@ -62,7 +62,7 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1488px] px-5 py-6 md:px-8 md:py-10">
+      <main id="main-content" tabIndex={-1} className="mx-auto max-w-[1488px] px-5 py-6 md:px-8 md:py-10">
         <div className="grid gap-4 lg:grid-cols-12">
           <section className="panel flex min-h-[420px] flex-col justify-between p-6 md:p-10 lg:col-span-8" aria-labelledby="hero-title">
             <div className="max-w-[840px]">

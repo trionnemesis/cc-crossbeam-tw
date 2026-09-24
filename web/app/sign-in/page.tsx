@@ -15,7 +15,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const config = parseRuntimeConfig(process.env);
 
   return (
-    <main className="grid min-h-screen place-items-center px-5 py-12">
+    <main id="main-content" tabIndex={-1} className="grid min-h-screen place-items-center px-5 py-12">
       <section className="w-full max-w-lg rounded-[6px] border border-[var(--border)] bg-white p-7 shadow-[0_24px_80px_rgb(19_40_59_/_0.08)] md:p-10">
         <LockKeyhole className="text-[var(--ink)]" size={30} aria-hidden="true" />
         <p className="mt-8 text-xs tracking-[0.18em] text-[var(--muted)] uppercase">Private access</p>
