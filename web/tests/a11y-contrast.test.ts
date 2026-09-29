@@ -71,6 +71,13 @@ describe("WCAG 2.2 AA palette contrast", () => {
   it.each(pairs)("%s meets its AA minimum", (_label, fg, bg, min) => {
     expect(contrastRatio(fg, bg)).toBeGreaterThanOrEqual(min);
   });
+
+  // The pairs above assume flat backgrounds, and axe reports contrast over a
+  // gradient as undecidable. A decorative gradient once put --muted at 4.06:1.
+  it("keeps every background flat so the measured pairs are the rendered ones", () => {
+    expect(css).not.toMatch(/gradient\(/);
+    expect(css).toMatch(/body \{[^}]*background: var\(--canvas\);/);
+  });
 });
 
 describe("contrast math", () => {

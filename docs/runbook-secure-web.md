@@ -104,6 +104,7 @@ bytes out of the Next.js process.
 - Google OAuth must open in the external system browser when entered from LINE.
 - LINE webhook modified-body signature test must return `401`.
 - Run `npm run acceptance:upload` with only the synthetic canary fixture.
+- Run `npm run acceptance:a11y` (see Accessibility below) with only the synthetic fixture.
 - Check `codex login status`; never print the credential file.
 
 ### `RESIDUAL_PII_BLOCKED` rejections
@@ -225,16 +226,38 @@ what caught the original 消防法/建築技術規則 gap.
 
 ## Accessibility (R11)
 
-What CI enforces on every push (`npm run test:run`):
+What CI enforces on every push:
 
-- `web/tests/a11y-contrast.test.ts` reads the tokens in `web/app/globals.css` and fails
-  if any text pair drops below 4.5:1 or any field border, dropzone border, or focus ring
-  drops below 3:1 (WCAG 2.2 AA, SC 1.4.3 / 1.4.11). Add a pair there whenever a new
-  foreground/background combination ships.
-- `web/tests/a11y-structure.test.ts` checks the skip link is the first element in
-  `<body>`, every page has exactly one `<main id="main-content" tabIndex={-1}>`, the
-  sr-only file input draws its focus ring on the dropzone, and ink panels switch the
-  focus ring to white.
+- `web/tests/a11y-contrast.test.ts` (`npm run test:run`) reads the tokens in
+  `web/app/globals.css` and fails if any text pair drops below 4.5:1 or any field border,
+  dropzone border, or focus ring drops below 3:1 (WCAG 2.2 AA, SC 1.4.3 / 1.4.11). It also
+  fails if any background in `globals.css` becomes a gradient, because the pairs assume
+  flat backgrounds. Add a pair there whenever a new foreground/background combination
+  ships.
+- `web/tests/a11y-structure.test.ts` (`npm run test:run`) checks the skip link is the
+  first element in `<body>`, every page has exactly one
+  `<main id="main-content" tabIndex={-1}>`, the sr-only file input draws its focus ring
+  on the dropzone, and ink panels switch the focus ring to white.
+- The `a11y` job runs `npm run acceptance:a11y` (`web/scripts/e2e-a11y.ts`) against a
+  production build with the worker running:
+  - axe with the WCAG 2.0/2.1/2.2 A+AA tags on all eight routes (`/`, `/sign-in`,
+    `/link/line`, `/cases`, `/cases/[caseId]`, `/review`, `/sources`, `/admin`) at
+    1280x900 and 390x844, in the states a user sees: signed out, empty case, HITL
+    pending, completed, plus the open create-case form at 1280x900. 23 scans. Any
+    violation **and any `incomplete` result** fails the job: axe marks contrast it cannot
+    compute (for example over a gradient) as incomplete, not as a violation, so counting
+    violations alone hid real failures.
+  - The core flow driven by keyboard only: sign in, create a case, upload, answer every
+    HITL question, open the result from the case list. The skip link must be the first
+    Tab stop on every freshly loaded page and move focus to `<main>`; every Tab stop
+    must draw an outline of at least 2px.
+
+To run it locally, start the web app and the worker as in CI (the first signed-in request
+creates the schema the worker checks), then
+`CHROMIUM_PATH=<path to a Chromium build> npm run acceptance:a11y`, or install the pinned
+build with `npx playwright-core install chromium` and omit `CHROMIUM_PATH`. On a red job,
+the log lists each finding with rule, route, state, viewport, and selectors. Fix the page
+or the token. Do not add an exception to the script.
 
 Contrast fixes made when the palette was first measured (issue #25):
 
@@ -245,17 +268,21 @@ Contrast fixes made when the palette was first measured (issue #25):
 | LINE link button text on `#06c755` | white 2.26:1 | `--ink` 6.68:1 |
 | Text-field border on white | `--border` 1.47:1 | `--field-border` 3.56:1 |
 | Focus ring inside the ink sidebar | `--interactive` 2.17:1 | white 15.06:1 |
+| `--muted` text on the page background | slate radial gradient under the text, 4.06–4.34:1 measured on the rendered pixels | flat `--canvas`, 4.59:1 |
 
-Not yet gated or not yet done — R11 is **not** fully verified:
+The CI gate found the last row. axe returns those nodes as `incomplete`, so the earlier
+manual run, which counted violations only, reported 0.
 
-- The browser axe scan is manual. It was last run with axe-core against a local
-  production build on seven of the eight routes (`/`, `/sign-in`, `/cases`,
-  `/cases/[caseId]`, `/review`, `/sources`, `/admin`) with WCAG 2.0/2.1/2.2 A+AA tags:
-  0 violations. `/link/line` redirects without a valid LINE token and was not scanned;
-  its only new color pair is covered by the contrast test. Putting axe in CI needs a
-  browser dependency in `web/package.json` and is tracked in issue #25.
-- No screen-reader walkthrough (NVDA/VoiceOver) and no real-device mobile check has
-  been recorded.
+What the keyboard gate cannot prove: the upload step shows that Space on the focused
+file input opens the file chooser, but choosing the file happens in the operating
+system's dialog, outside the page.
+
+Still manual, and not yet done. R11 is **not** fully verified:
+
+- No screen-reader walkthrough (NVDA/VoiceOver) of Secure Upload → HITL Review has been
+  recorded.
+- No real-device mobile check has been recorded. The 390x844 scan is viewport emulation
+  in headless Chromium.
 
 ## Backup, retention, and incident response
 

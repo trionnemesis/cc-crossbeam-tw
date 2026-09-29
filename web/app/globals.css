@@ -25,12 +25,13 @@ html {
   font-family: Inter, "Noto Sans TC", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* Flat on purpose. The slate radial glow that sat here put --muted text at
+   4.06-4.34:1 (measured, issue #25), and axe cannot decide contrast over any
+   gradient, so text on the page background must sit on a flat token. */
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 85% -10%, rgb(110 132 150 / 16%), transparent 36rem),
-    var(--canvas);
+  background: var(--canvas);
 }
 
 a {

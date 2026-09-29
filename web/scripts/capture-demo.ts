@@ -6,15 +6,13 @@
  * one screenshot per stage. Nothing is staged or mocked: what the images show is
  * what the running app produced.
  *
- * Playwright is intentionally not a project dependency; it is only needed to
- * refresh these images. Because of that this file is excluded from `tsconfig.json`
- * — after `npm ci` the import is unresolvable, so typechecking it would fail CI for
- * a tool CI never runs. Install playwright locally to get type checking here.
+ * playwright-core is a dev dependency (the accessibility gate uses it too), so this
+ * file is typechecked with the rest of the project. It launches CHROMIUM_PATH when
+ * set, otherwise a browser from `npx playwright-core install chromium`.
  *
  * Run it ad hoc:
  *
- *   cd web && npm install --no-save playwright
- *   npm start                                   # in another shell
+ *   cd web && npm start                         # in another shell
  *   python3 -m worker.secure_worker.server      # in another shell
  *   npx tsx scripts/capture-demo.ts
  *
@@ -22,7 +20,7 @@
  */
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import { chromium, type Page } from "playwright";
+import { chromium, type Page } from "playwright-core";
 
 const webOrigin = "http://127.0.0.1:3000";
 const repoRoot = path.resolve(process.cwd(), "..");
