@@ -205,6 +205,21 @@ def select_local_rule_version(
             candidates=tuple(sorted(malformed_records)),
         ).as_dict()
 
+    invalid_records = sorted(
+        {
+            str(record.get("source_id") or "<missing-source-id>")
+            for record in matches
+            if validate_local_rule_record(record)
+        }
+    )
+    if invalid_records:
+        return VersionSelection(
+            False,
+            "invalid_lifecycle_record",
+            True,
+            candidates=tuple(invalid_records),
+        ).as_dict()
+
     active = [record for record in matches if record.get("legal_status") == "active"]
     if as_of_date is None:
         if len(active) == 1:

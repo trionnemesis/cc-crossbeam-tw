@@ -109,6 +109,21 @@ class LocalRuleLifecycleTests(unittest.TestCase):
         failures = validate_local_rule_record(changed)
         self.assertTrue(any("normalized_content_sha256 mismatch" in item for item in failures))
 
+    def test_invalid_normalized_requirement_blocks_current_selection(self):
+        changed = copy.deepcopy(self.records)
+        changed[0]["requirements"][0]["normalized_facts"][
+            "building_transcript_max_age_months"
+        ] = 12
+        result = select_local_rule_version(
+            changed,
+            jurisdiction="ntpc",
+            official_identifier="C0170020",
+        )
+        self.assertFalse(result["exists"])
+        self.assertTrue(result["human_review_required"])
+        self.assertEqual(result["status"], "invalid_lifecycle_record")
+        self.assertEqual(result["candidates"], ["ntpc-interior-review-rule"])
+
     def test_acceptance_covers_ntpc_points_7_to_11(self):
         acceptance = run_local_rule_lifecycle_acceptance()
         self.assertTrue(acceptance["all_passed"])

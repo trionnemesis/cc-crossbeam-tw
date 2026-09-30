@@ -128,6 +128,22 @@ class LocalRuleMcpSurfaceTests(unittest.TestCase):
         self.assertEqual(payload["lifecycle_status"], "invalid_record_date")
         self.assertEqual(payload["required_documents"], [])
 
+    def test_invalid_normalized_requirement_blocks_lookup(self):
+        records = copy.deepcopy(load_local_rule_records())
+        records[0]["requirements"][0]["normalized_facts"][
+            "building_transcript_max_age_months"
+        ] = 12
+        with patch("tw_law_mcp.server.load_local_rule_records", return_value=records):
+            payload = self._call_tool(
+                "get_local_rule",
+                {"jurisdiction": "ntpc", "rule_name": NTPC_RULE_NAME},
+            )
+        self.assertFalse(payload["exists"])
+        self.assertTrue(payload["human_review_required"])
+        self.assertEqual(payload["lifecycle_status"], "invalid_lifecycle_record")
+        self.assertEqual(payload["required_documents"], [])
+        self.assertNotIn("normalized_requirements", payload)
+
     def test_initialize_reports_package_version(self):
         response = self.server.handle(
             {"jsonrpc": "2.0", "id": 2, "method": "initialize", "params": {}}
