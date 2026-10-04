@@ -1,4 +1,4 @@
-"""Red-phase suite for issue #28 PR A: reversible TXT masking core (cb.mask.v1).
+"""Tests for issue #28 PR A: the reversible TXT masking core (cb.mask.v1).
 
 The specification is docs/ADR-0003-reversible-masking.md. Every input here is
 synthetic. The suite is deterministic: it asserts properties of random tokens,
@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import traceback
+import tracemalloc
 import unittest
 import urllib.parse
 import uuid
@@ -1228,7 +1229,7 @@ class InputRejectionTests(CoreTestCase):
             )
 
     def test_too_many_occurrences_uses_the_current_limit(self) -> None:
-        self.assertEqual(rm.MAX_OCCURRENCES, 999_999)
+        self.assertEqual(rm.MAX_OCCURRENCES, 50_000)
         text = "".join(f"聯絡信箱：user{i}@example.com\n" for i in range(3))
         with patch.object(rm, "MAX_OCCURRENCES", 3):
             safe, manifest = self.mask(text)
@@ -2495,6 +2496,303 @@ class LegacyParityTests(CoreTestCase):
         self.assertGreater(accepted, len(docs) // 2)
 
 
+def email_lines(count: int) -> str:
+    """One email, and nothing else that any pattern knows, per line: one span, two candidates."""
+    return "".join(f"聯絡信箱：user{index}@example.com\n" for index in range(count))
+
+
+def mixed_lines(count: int) -> str:
+    """A name with its label, a phone number and an email per line: three spans, seven candidates."""
+    return "申請人：王大明，電話 0912-345-678，信箱 owner@example.com。\n" * count
+
+
+# Proves #28 §10 PR A item 3c (hardening): a tampered digest or manifest gets a stable code, never a raw exception.
+class TamperedShapeTests(CoreTestCase):
+    def setUp(self) -> None:
+        self.masked, self.manifest = self.issue_tamper_doc()
+        self.text = self.masked.decode("utf-8")
+
+    def bad_digests(self, digest: str) -> dict[str, object]:
+        # Not equal to any digest, and some of them cannot even be encoded or compared as ASCII.
+        return {
+            "lone surrogate": chr(0xD800),
+            "digest with a lone surrogate at the end": digest[:-1] + chr(0xDC00),
+            "digest followed by a lone surrogate": digest + chr(0xDFFF),
+            "bytes": digest.encode("ascii"),
+            "bytearray": bytearray(digest.encode("ascii")),
+            "upper case": digest.upper(),
+            "trailing newline": digest + "\n",
+            "arabic-indic digits": chr(0x0660) * 64,
+            "empty": "",
+            "list": [digest],
+            "int": 5,
+        }
+
+    def test_a_masked_digest_that_is_no_lowercase_hex_digest_is_a_mismatch(self) -> None:
+        for name, bad in self.bad_digests(self.manifest.masked_sha256).items():
+            with self.subTest(case=name):
+                tampered = dataclasses.replace(self.manifest, masked_sha256=bad)
+                self.assertRestoreRejected("MASKED_DIGEST_MISMATCH", self.masked, tampered, canaries=TAMPER_VALUES)
+        self.assertEqual(restore_original(self.masked, self.manifest, BINDING_A), TAMPER_TEXT.encode("utf-8"))
+
+    def test_an_original_digest_that_is_no_lowercase_hex_digest_is_manifest_invalid(self) -> None:
+        for name, bad in self.bad_digests(self.manifest.original_sha256).items():
+            with self.subTest(case=name):
+                tampered = dataclasses.replace(self.manifest, original_sha256=bad)
+                self.assertRestoreRejected("MANIFEST_INVALID", self.masked, tampered, canaries=TAMPER_VALUES)
+
+    def test_digest_comparison_never_raises_and_only_accepts_equal_lowercase_hex(self) -> None:
+        digest = sha(b"x")
+        self.assertTrue(rm._digest_equal(digest, digest))
+        self.assertFalse(rm._digest_equal(digest, sha(b"y")))
+        for name, bad in self.bad_digests(digest).items():
+            with self.subTest(case=name):
+                self.assertFalse(rm._digest_equal(bad, digest))
+                self.assertFalse(rm._digest_equal(digest, bad))
+                self.assertFalse(rm._digest_equal(bad, bad))
+
+    def untrustworthy_manifests(self) -> dict[str, PrivateManifest]:
+        manifest, occurrences = self.manifest, self.manifest.occurrences
+        first = occurrences[0]
+        return {
+            "occurrences None": dataclasses.replace(manifest, occurrences=None),
+            "occurrences a list": dataclasses.replace(manifest, occurrences=list(occurrences)),
+            "occurrences a string": dataclasses.replace(manifest, occurrences="occurrences"),
+            "occurrences an int": dataclasses.replace(manifest, occurrences=5),
+            "an item None": dataclasses.replace(manifest, occurrences=(None,) + occurrences[1:]),
+            "an item a string": dataclasses.replace(manifest, occurrences=(first.token,) + occurrences[1:]),
+            "an item an object": dataclasses.replace(manifest, occurrences=(object(),) + occurrences[1:]),
+            "an item a dict": dataclasses.replace(manifest, occurrences=({"token": first.token},) + occurrences[1:]),
+            "unhashable token": replace_occurrence(manifest, 0, token=[first.token]),
+            "token bytes": replace_occurrence(manifest, 0, token=first.token.encode("ascii")),
+            "token None": replace_occurrence(manifest, 0, token=None),
+            "token of another type": replace_occurrence(manifest, 0, token=first.token.replace("PERSON", "EMAIL")),
+            "unknown detector class": replace_occurrence(manifest, 0, detector_class="nobody"),
+            "entity type confusion": replace_occurrence(manifest, 0, entity_type="EMAIL"),
+            "occurrences out of order": dataclasses.replace(manifest, occurrences=tuple(reversed(occurrences))),
+            "an occurrence twice": dataclasses.replace(manifest, occurrences=(first, first) + occurrences[2:]),
+            "an occurrence missing": dataclasses.replace(manifest, occurrences=occurrences[1:]),
+            "namespace of the wrong shape": dataclasses.replace(manifest, token_namespace="not-a-namespace"),
+            "namespace upper case": dataclasses.replace(manifest, token_namespace=manifest.token_namespace.upper()),
+            "namespace one short": dataclasses.replace(manifest, token_namespace=manifest.token_namespace[:-1]),
+            "namespace None": dataclasses.replace(manifest, token_namespace=None),
+            "namespace bytes": dataclasses.replace(manifest, token_namespace=manifest.token_namespace.encode("ascii")),
+            "namespace of another manifest": dataclasses.replace(manifest, token_namespace="z" * 28),
+            "schema version": dataclasses.replace(manifest, schema_version="cb.mask.v0"),
+            "schema version None": dataclasses.replace(manifest, schema_version=None),
+        }
+
+    def test_the_release_scan_refuses_a_manifest_it_cannot_trust(self) -> None:
+        # A shape that raises TypeError or AttributeError, or that is silently believed, is the bug.
+        self.assertIsNone(check_release_text(self.text, self.manifest))
+        for name, tampered in self.untrustworthy_manifests().items():
+            with self.subTest(case=name):
+                self.assertRejected("MANIFEST_INVALID", check_release_text, self.text, tampered, canaries=TAMPER_VALUES)
+
+    def test_the_release_scan_judges_the_manifest_before_it_reads_any_token(self) -> None:
+        # The text is clean and so would pass; a text with an unknown token must not hide the manifest verdict.
+        unknown = make_token("PERSON", "z" * 28, 99)
+        for name, tampered in self.untrustworthy_manifests().items():
+            with self.subTest(case=name):
+                self.assertRejected("MANIFEST_INVALID", check_release_text, self.text + unknown, tampered)
+                self.assertRejected("MANIFEST_INVALID", check_release_text, "[[CB1:", tampered)
+
+    def test_restore_and_the_release_scan_agree_on_what_an_untrustworthy_manifest_is(self) -> None:
+        for name, tampered in self.untrustworthy_manifests().items():
+            with self.subTest(case=name):
+                self.assertRestoreRejected("MANIFEST_INVALID", self.masked, tampered, canaries=TAMPER_VALUES)
+
+    def test_a_manifest_without_occurrences_is_judged_like_any_other(self) -> None:
+        # No token can vouch for the namespace here: the rule itself has to say no.
+        safe, empty = self.mask(corpus_doc("no_pii").raw)
+        self.assertEqual(len(empty.occurrences), 0)
+        self.assertIsNone(check_release_text(safe.masked_text, empty))
+        shapes = {
+            "namespace of the wrong shape": {"token_namespace": "not-a-namespace"},
+            "namespace None": {"token_namespace": None},
+            "schema version": {"schema_version": "cb.mask.v0"},
+            "occurrences a list": {"occurrences": []},
+            "occurrences None": {"occurrences": None},
+        }
+        for name, changes in shapes.items():
+            with self.subTest(case=name):
+                tampered = dataclasses.replace(empty, **changes)
+                self.assertRejected("MANIFEST_INVALID", check_release_text, safe.masked_text, tampered)
+                self.assertRestoreRejected("MANIFEST_INVALID", safe.masked_bytes, tampered)
+
+    def test_what_depends_on_the_masked_bytes_is_checked_by_restore_only(self) -> None:
+        # The release scan has no masked artifact to compare the bom flag with.
+        wrong_bom = dataclasses.replace(self.manifest, bom=True)
+        self.assertRestoreRejected("MANIFEST_INVALID", self.masked, wrong_bom, canaries=TAMPER_VALUES)
+        self.assertIsNone(check_release_text(self.text, wrong_bom))
+
+
+# Proves #28 §10 PR A item 3d (hardening): oversized input is refused as too large before anything is hashed.
+class RegistrySizeBeforeHashingTests(CoreTestCase):
+    def test_an_oversized_document_is_too_large_before_it_is_hashed(self) -> None:
+        small, big = ID_A.encode("ascii"), b"x" * 17
+        registry = InMemoryManifestRegistry()
+        with patch.object(rm, "MAX_DOCUMENT_BYTES", 16):
+            first = registry.issue(small, BINDING_A)
+            with patch.object(rm, "_sha256", wraps=rm._sha256) as hashing:
+                # An existing binding: the size verdict comes before the content comparison.
+                self.assertRejected("DOCUMENT_TOO_LARGE", registry.issue, big, BINDING_A)
+                # A new binding.
+                self.assertRejected("DOCUMENT_TOO_LARGE", registry.issue, big, BINDING_B)
+            hashing.assert_not_called()
+            # A refusal changes nothing: the first job is still the one registered, and still idempotent.
+            again = registry.issue(small, BINDING_A)
+            self.assertEqual(again.manifest_id, first.manifest_id)
+            self.assertEqual(again.masked_text, first.masked_text)
+            self.assertEqual(
+                registry.restore_original(first.masked_bytes, manifest_id=first.manifest_id, binding=BINDING_A), small
+            )
+            # The new binding was not left half-used.
+            self.assertEqual(registry.issue(small, BINDING_B).occurrence_count, 1)
+
+    def test_the_size_check_comes_after_the_type_binding_and_deadline_checks(self) -> None:
+        big = b"x" * 17
+        registry = InMemoryManifestRegistry()
+        with patch.object(rm, "MAX_DOCUMENT_BYTES", 16), patch.object(rm, "_sha256", wraps=rm._sha256) as hashing:
+            self.assertRejected("INVALID_INPUT_TYPE", registry.issue, "x" * 17, BINDING_A)
+            self.assertRejected("INVALID_BINDING", registry.issue, big, "binding")
+            self.assertRejected(
+                "INVALID_RETENTION_DEADLINE", registry.issue, big, BINDING_A, retention_deadline=float("nan")
+            )
+            self.assertRejected("DOCUMENT_TOO_LARGE", registry.issue, big, BINDING_A, retention_deadline=5)
+        hashing.assert_not_called()
+
+    def test_a_document_of_exactly_the_limit_is_still_issued(self) -> None:
+        registry = InMemoryManifestRegistry()
+        with patch.object(rm, "MAX_DOCUMENT_BYTES", 16):
+            safe = registry.issue(b"a" * 16, BINDING_A)
+            self.assertEqual(
+                registry.restore_original(safe.masked_bytes, manifest_id=safe.manifest_id, binding=BINDING_A), b"a" * 16
+            )
+
+
+# Proves #28 §10 PR A item 3d (hardening): a crowded document is refused early, with bounded work and memory.
+class OccurrenceBudgetTests(CoreTestCase):
+    def test_the_limits_are_the_documented_resource_bounds(self) -> None:
+        self.assertEqual(rm.MAX_OCCURRENCES, 50_000)
+        self.assertEqual(rm._CANDIDATES_PER_OCCURRENCE, 4)
+        self.assertLess(rm.MAX_OCCURRENCES, 10**rm.SEQUENCE_DIGITS - 1)  # the grammar capacity is only the ceiling
+
+    def test_the_budget_stops_the_scan_of_the_original_before_the_replay_starts(self) -> None:
+        # Limit 3, four candidates per occurrence: a budget of 12. Thirteen emails make 13 candidates in the scan alone.
+        raw = email_lines(13).encode("utf-8")
+        with (
+            patch.object(rm, "MAX_OCCURRENCES", 3),
+            patch.object(rm, "_replay_legacy_masker", wraps=rm._replay_legacy_masker) as replay,
+            patch.object(rm, "_value_span", wraps=rm._value_span) as value_span,
+        ):
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A)
+        replay.assert_not_called()
+        value_span.assert_not_called()
+
+    def test_the_budget_is_exceeded_not_reached(self) -> None:
+        # Twelve candidates are within the budget of 12, so the scan lets them through; the replay has nothing left.
+        raw = email_lines(12).encode("utf-8")
+        with (
+            patch.object(rm, "MAX_OCCURRENCES", 3),
+            patch.object(rm, "_replay_legacy_masker", wraps=rm._replay_legacy_masker) as replay,
+        ):
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A)
+        replay.assert_called_once()
+        self.assertEqual(replay.call_args.kwargs.get("limit"), 0)
+
+    def test_the_replay_gets_what_is_left_of_the_budget_and_stops_there(self) -> None:
+        # Limit 3 and two candidates per occurrence: a budget of 6. Four emails use 4 in the scan; the replay would add 4.
+        raw = email_lines(4).encode("utf-8")
+        with (
+            patch.object(rm, "MAX_OCCURRENCES", 3),
+            patch.object(rm, "_CANDIDATES_PER_OCCURRENCE", 2),
+            patch.object(rm, "_replay_legacy_masker", wraps=rm._replay_legacy_masker) as replay,
+            patch.object(rm, "_value_span", wraps=rm._value_span) as value_span,
+        ):
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A)
+        replay.assert_called_once()
+        self.assertEqual(replay.call_args.kwargs.get("limit"), 2)
+        value_span.assert_not_called()
+
+    def test_the_replay_counts_its_replacements_against_its_limit(self) -> None:
+        text = email_lines(3)
+        replacements, working = rm._replay_legacy_masker(text, limit=3)
+        self.assertEqual(len(replacements), 3)
+        self.assertEqual(working, mask_sensitive_text(text).text)
+        self.assertEqual(rm._replay_legacy_masker(text), (replacements, working))  # no limit, as before
+        self.assertRejected("TOO_MANY_OCCURRENCES", rm._replay_legacy_masker, text, limit=2)
+        self.assertRejected("TOO_MANY_OCCURRENCES", rm._replay_legacy_masker, text, limit=0)
+        self.assertEqual(rm._replay_legacy_masker("nothing to find", limit=0), ([], "nothing to find"))
+
+    def test_the_sweep_refuses_as_soon_as_the_kept_spans_pass_the_limit(self) -> None:
+        # Four resolvable spans from eight candidates, which is within the budget of 12, but one span too many.
+        raw = email_lines(4).encode("utf-8")
+        with (
+            patch.object(rm, "MAX_OCCURRENCES", 3),
+            patch.object(rm, "_value_span", wraps=rm._value_span) as value_span,
+            patch.object(rm, "_make_token", wraps=rm._make_token) as make_token_spy,
+        ):
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A)
+        self.assertGreaterEqual(value_span.call_count, 4)  # the candidates were judged; no token was built
+        make_token_spy.assert_not_called()
+
+    def test_the_first_problem_the_work_reaches_decides_the_code(self) -> None:
+        crossing = "生日：1-02-12345678\n"
+        with patch.object(rm, "MAX_OCCURRENCES", 3):
+            # Four spans come first in the sweep: the limit is passed before the conflict is reached.
+            late = (email_lines(4) + crossing).encode("utf-8")
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, late, BINDING_A)
+            early = (crossing + email_lines(4)).encode("utf-8")
+            self.assertRejected("SPAN_CONFLICT", mask_document, early, BINDING_A)
+
+    def test_words_the_legacy_masker_keeps_are_no_candidates_and_do_not_count(self) -> None:
+        # A surname and a vocabulary word: the pattern matches, NON_NAME_TERMS keeps it, so it is no candidate.
+        text = "方式 " * 50
+        self.assertIn("方式", NON_NAME_TERMS)
+        self.assertEqual(rm._candidate_ranges(text, 0), [])
+        with patch.object(rm, "MAX_OCCURRENCES", 3):
+            self.assertEqual(rm._resolve_spans(text), [])
+
+    def test_a_document_with_exactly_the_limit_is_accepted_and_restores(self) -> None:
+        raw = email_lines(3).encode("utf-8")
+        with patch.object(rm, "MAX_OCCURRENCES", 3):
+            safe, manifest = self.mask(raw)
+        self.assertEqual(len(manifest.occurrences), 3)
+        self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+
+    def test_a_realistic_mix_at_exactly_the_limit_fits_the_candidate_budget(self) -> None:
+        # Seven candidates for three spans: the factor of four must leave room for that.
+        raw = mixed_lines(500).encode("utf-8")
+        with patch.object(rm, "MAX_OCCURRENCES", 1500):
+            safe, manifest = self.mask(raw)
+            self.assertEqual(len(manifest.occurrences), 1500)
+            self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+        with patch.object(rm, "MAX_OCCURRENCES", 1499):
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A)
+
+    def test_the_six_digit_capacity_stays_the_ceiling_when_the_constant_is_raised(self) -> None:
+        raw = email_lines(10).encode("utf-8")
+        with patch.object(rm, "SEQUENCE_DIGITS", 1), patch.object(rm, "MAX_OCCURRENCES", 10**6):
+            # Capacity is 9: ten spans are refused before any token with a one-digit sequence is built.
+            self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A)
+
+    def test_a_crowded_document_is_refused_early_with_bounded_memory(self) -> None:
+        # About 315 000 names: far over the budget of 200 000 candidates. Everything that came after the scan
+        # (the replay, the table of spans, the sort) used to be built in full before the refusal.
+        unit = "王大明 "
+        raw = (unit * (3 * 1024 * 1024 // len(unit.encode("utf-8")))).encode("utf-8")
+        with patch.object(rm, "_replay_legacy_masker", wraps=rm._replay_legacy_masker) as replay:
+            tracemalloc.start()
+            try:
+                self.assertRejected("TOO_MANY_OCCURRENCES", mask_document, raw, BINDING_A, canaries=[NAME_A])
+                _, peak = tracemalloc.get_traced_memory()
+            finally:
+                tracemalloc.stop()
+        replay.assert_not_called()
+        self.assertLess(peak, 96 * 1024 * 1024, f"peak {peak / 2**20:.0f} MiB")
+
+
 CORE_SOURCE_PATH = WORKER_DIR / "reversible_masking.py"
 EXPECTED_PUBLIC_API = (
     "DETECTOR_VERSION", "DocumentBinding", "ENTITY_TYPES", "ERROR_CODES", "InMemoryManifestRegistry",
@@ -2657,7 +2955,7 @@ class ContractTests(CoreTestCase):
         self.assertEqual(rm.SCHEMA_VERSION, "cb.mask.v1")
         self.assertEqual(rm.PARSER_VERSION, "txt-utf8-strict/1")
         self.assertEqual(rm.MAX_DOCUMENT_BYTES, 25 * 1024 * 1024)
-        self.assertEqual(rm.MAX_OCCURRENCES, 999_999)
+        self.assertEqual(rm.MAX_OCCURRENCES, 50_000)
         self.assertEqual(rm.RESERVED_PREFIX, "[[CB")
         self.assertTrue(rm.OPAQUE_ID_RE.fullmatch("a" * 128))
         self.assertIsNone(rm.OPAQUE_ID_RE.fullmatch("a" * 129))

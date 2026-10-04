@@ -67,7 +67,15 @@ RESOLUTION_POLICY_ID = "span-resolution/1"
 
 # Read from the module at call time, so a test (or an operator) can lower them.
 MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
-MAX_OCCURRENCES = 999_999
+# A resource bound, not the capacity of the token grammar. Measured on the first implementation: one
+# occurrence costs about 1.5 KB while a document is masked (a 5 MiB document with 212 547 occurrences
+# peaked at 352 MiB), and a crowded one took 19 s and 650 MiB to refuse (10 MiB), 48 s and 1.6 GiB
+# (24 MiB). The six digits of <SEQ> stay the hard ceiling; see _occurrence_limit.
+MAX_OCCURRENCES = 50_000
+# Detection has two sources and a span can be found by several patterns. A document may propose this
+# many candidates for each occurrence it is allowed, and is refused as soon as it proposes more. A
+# name with its label, a phone number and an email, three spans in all, make seven candidates.
+_CANDIDATES_PER_OCCURRENCE = 4
 
 NAMESPACE_LENGTH = 28
 SEQUENCE_DIGITS = 6
@@ -372,9 +380,18 @@ def _sha256(data: bytes) -> str:
 
 
 def _digest_equal(left: object, right: object) -> bool:
-    if not (isinstance(left, str) and isinstance(right, str)):
+    """True only for two equal lowercase SHA-256 hex digests; anything else is simply not equal.
+
+    A digest read from a tampered manifest can be any object. Encoding it to compare bytes raised
+    UnicodeEncodeError for a lone surrogate, and hmac.compare_digest takes only ASCII text, so both
+    sides must be well-formed digests before they are compared. Two equal malformed values are not
+    two equal digests either.
+    """
+    if not (isinstance(left, str) and _SHA256_RE.fullmatch(left)):
         return False
-    return hmac.compare_digest(left.encode("utf-8"), right.encode("utf-8"))
+    if not (isinstance(right, str) and _SHA256_RE.fullmatch(right)):
+        return False
+    return hmac.compare_digest(left, right)
 
 
 def _decode_strict(data: bytes) -> str | None:
@@ -449,7 +466,9 @@ def _cut_pieces(pieces: Sequence[_Piece], starts: Sequence[int], lo: int, hi: in
     return cut
 
 
-def _replay_legacy_masker(text: str) -> tuple[list[tuple[int, int, str]], str]:
+def _replay_legacy_masker(
+    text: str, *, limit: int | None = None
+) -> tuple[list[tuple[int, int, str]], str]:
     """Replay ``masking.mask_sensitive_text`` and keep track of what its working text stands for.
 
     That masker runs the patterns in order over text in which earlier matches are already
@@ -464,6 +483,9 @@ def _replay_legacy_masker(text: str) -> tuple[list[tuple[int, int, str]], str]:
     drifting apart). A match that touches a placeholder stands for that placeholder's whole range,
     so the ranges nest or are disjoint. They are candidates only: every position is a position in
     the original text, which is why this is a detection view and not a second coordinate system.
+
+    With a ``limit``, the replacement after the ``limit``-th raises TOO_MANY_OCCURRENCES at once, so
+    a crowded document never gets its whole replay built.
     """
     pieces = [_Piece(text, 0, len(text), True)] if text else []
     working = text
@@ -484,6 +506,8 @@ def _replay_legacy_masker(text: str) -> tuple[list[tuple[int, int, str]], str]:
             rebuilt += _cut_pieces(pieces, starts, cursor, first)
             rebuilt.append(_Piece(marker, start, end, False))
             replacements.append((start, end, name))
+            if limit is not None and len(replacements) > limit:
+                raise ReversibleMaskingError("TOO_MANY_OCCURRENCES")
             cursor = last
         if rebuilt:
             rebuilt += _cut_pieces(pieces, starts, cursor, len(working))
@@ -493,7 +517,7 @@ def _replay_legacy_masker(text: str) -> tuple[list[tuple[int, int, str]], str]:
     return replacements, working
 
 
-def _candidate_ranges(text: str) -> list[tuple[int, int, str]]:
+def _candidate_ranges(text: str, budget: int) -> list[tuple[int, int, str]]:
     """Every range of ``text`` that something masks, as (start, end, detector class).
 
     Two sources, so that the candidates are a superset of what ``mask_sensitive_text`` replaces:
@@ -505,15 +529,26 @@ def _candidate_ranges(text: str) -> list[tuple[int, int, str]]:
     Offsets are recorded in the original's coordinates only. Issue #28 rules out running the next
     regex on replaced text as a way to record offsets; the replay is a detection view with an
     exact alignment back to the original, never a source of positions by itself.
+
+    ``budget`` caps the candidates of both sources together. The count is kept while the matches
+    are found, so a crowded document is refused after ``budget`` + 1 of them: before the replay
+    starts, and before anything else is built from them.
     """
-    ranges = [
-        (match.start(), match.end(), name)
-        for name, pattern in PATTERNS
-        for match in pattern.finditer(text)
-        if _is_masked_class(name, match.group(0))
-    ]
-    ranges += _replay_legacy_masker(text)[0]
+    ranges: list[tuple[int, int, str]] = []
+    for name, pattern in PATTERNS:
+        for match in pattern.finditer(text):
+            if not _is_masked_class(name, match.group(0)):
+                continue
+            ranges.append((match.start(), match.end(), name))
+            if len(ranges) > budget:
+                raise ReversibleMaskingError("TOO_MANY_OCCURRENCES")
+    ranges += _replay_legacy_masker(text, limit=budget - len(ranges))[0]
     return ranges
+
+
+def _occurrence_limit() -> int:
+    """How many occurrences one document may have: the resource bound, never above the grammar."""
+    return min(MAX_OCCURRENCES, 10**SEQUENCE_DIGITS - 1)
 
 
 def _resolve_spans(text: str) -> list[tuple[int, int, str]]:
@@ -523,10 +558,15 @@ def _resolve_spans(text: str) -> list[tuple[int, int, str]]:
     Identical spans keep the lowest PATTERNS index, a span inside another is absorbed by it, and a
     partial overlap refuses the document: merging would invent a type, shrinking would mask less
     than a detector asked for.
+
+    The occurrence limit is enforced where the work is done: the candidates are capped at
+    ``_CANDIDATES_PER_OCCURRENCE`` times the limit while they are collected, and the sweep stops at
+    the first span past the limit. A refusal never waits for the whole document to be processed.
     """
+    limit = _occurrence_limit()
     priority_of = {name: priority for priority, (name, _) in enumerate(PATTERNS)}
     best: dict[tuple[int, int], tuple[int, str]] = {}
-    for start, end, name in _candidate_ranges(text):
+    for start, end, name in _candidate_ranges(text, _CANDIDATES_PER_OCCURRENCE * limit):
         span = _value_span(name, text, start, end)
         if span not in best or priority_of[name] < best[span][0]:
             best[span] = (priority_of[name], name)
@@ -539,6 +579,8 @@ def _resolve_spans(text: str) -> list[tuple[int, int, str]]:
                 continue
             raise ReversibleMaskingError("SPAN_CONFLICT")
         kept.append((start, end, name))
+        if len(kept) > limit:
+            raise ReversibleMaskingError("TOO_MANY_OCCURRENCES")
     return kept
 
 
@@ -583,9 +625,8 @@ def mask_document(
     # system token, or slip past the release scan.
     if _TOKEN_PREFIX_RE.search(text):
         raise ReversibleMaskingError("RESERVED_TOKEN_COLLISION")
+    # The occurrence limit is enforced inside, as early as the work allows.
     spans = _resolve_spans(text)
-    if len(spans) > min(MAX_OCCURRENCES, 10**SEQUENCE_DIGITS - 1):
-        raise ReversibleMaskingError("TOO_MANY_OCCURRENCES")
 
     byte_at = _byte_offsets(
         text, [position for start, end, _ in spans for position in (start, end)]
@@ -670,11 +711,16 @@ def _scan_token_candidates(text: str) -> list[tuple[int, str | None]]:
 def check_release_text(text: str, manifest: PrivateManifest) -> None:
     """Outbound / release scan: only tokens issued by this manifest, everything else scanned.
 
-    A membership check, not a completeness check: a summary may omit or repeat tokens.
+    The manifest is judged first (``MANIFEST_INVALID``), because the tokens come from it. A
+    membership check, not a completeness check: a summary may omit or repeat tokens.
     """
     if not isinstance(text, str):
         raise ReversibleMaskingError("INVALID_INPUT_TYPE")
     if not isinstance(manifest, PrivateManifest):
+        raise ReversibleMaskingError("MANIFEST_INVALID")
+    # The tokens come from the manifest, so the manifest is judged first: a tampered one must end
+    # here with a code, not in a TypeError or in a set of tokens that nobody issued.
+    if not _manifest_shape_is_valid(manifest):
         raise ReversibleMaskingError("MANIFEST_INVALID")
     issued = {occurrence.token for occurrence in manifest.occurrences}
     candidates = _scan_token_candidates(text)
@@ -721,18 +767,19 @@ def _occurrence_is_well_formed(occ: object, namespace: str, sequence: int) -> bo
     )
 
 
-def _manifest_is_consistent(manifest: PrivateManifest, masked: bytes) -> bool:
-    """The structure rules of ADR-0003 (Mode A, step 6) as a yes/no.
+def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
+    """The structure rules of ADR-0003 (Mode A, step 6) that need no masked artifact, as a yes/no.
 
     Python slicing never raises on a bad range, so every rule is checked explicitly. Answering
-    with a bool lets the caller raise outside any except block.
+    with a bool lets the caller raise outside any except block. The release scan relies on this as
+    well: it reads the manifest's tokens, so it must not believe a manifest that mask_document
+    could not have made.
     """
     if manifest.schema_version != SCHEMA_VERSION:
         return False
     if manifest.encoding != "utf-8" or manifest.newline_policy != "preserve":
         return False
-    # The BOM flag is informational, but it must agree with the bytes it describes.
-    if not isinstance(manifest.bom, bool) or manifest.bom != masked.startswith(_BOM):
+    if not isinstance(manifest.bom, bool):
         return False
     if not (
         isinstance(manifest.token_namespace, str)
@@ -780,11 +827,19 @@ def _manifest_is_consistent(manifest: PrivateManifest, masked: bytes) -> bool:
         # The masked offset follows from the original one; both come from one run or neither does.
         if occ.masked_byte_start != occ.original_byte_start + shift:
             return False
-        if occ.masked_byte_end > len(masked):
-            return False
         shift += len(occ.token) - value_length
         previous_original_end, previous_masked_end = occ.original_byte_end, occ.masked_byte_end
     return True
+
+
+def _manifest_is_consistent(manifest: PrivateManifest, masked: bytes) -> bool:
+    """All of step 6: the shape of the manifest, and what only the masked artifact can confirm."""
+    if not _manifest_shape_is_valid(manifest):
+        return False
+    # The BOM flag is informational, but it must agree with the bytes it describes.
+    if manifest.bom != masked.startswith(_BOM):
+        return False
+    return all(occ.masked_byte_end <= len(masked) for occ in manifest.occurrences)
 
 
 def _verify_tokens(text: str, manifest: PrivateManifest) -> None:
@@ -898,6 +953,10 @@ class InMemoryManifestRegistry:
         if not isinstance(binding, DocumentBinding):
             raise ReversibleMaskingError("INVALID_BINDING")
         _check_retention_deadline(retention_deadline)
+        # The bound of mask_document, applied before the digest: hashing is linear in the input, and
+        # an oversized document must not pay for it, nor be mistaken for a changed one below.
+        if len(original) > MAX_DOCUMENT_BYTES:
+            raise ReversibleMaskingError("DOCUMENT_TOO_LARGE")
         key = self._binding_key(binding)
         digest = _sha256(original)
         # Masking happens under the lock so that two racing retries cannot both create a manifest.

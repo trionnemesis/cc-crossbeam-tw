@@ -119,7 +119,8 @@ Illustration (the namespace is random per manifest):
   `PATTERNS`. The result must not depend on `PYTHONHASHSEED`. A manifest records the
   versions it was made with; restore does not compare them with the current constants,
   because they are provenance, not a compatibility switch. Limits (`MAX_DOCUMENT_BYTES`,
-  `MAX_OCCURRENCES`) and the version constants are read from the module at call time.
+  `MAX_OCCURRENCES` and the candidate factor `_CANDIDATES_PER_OCCURRENCE`) and the
+  version constants are read from the module at call time.
 
 ### Byte offsets, BOM and newlines
 
@@ -157,9 +158,10 @@ Illustration (the namespace is random per manifest):
   binding. The same document masked twice, or under two bindings, gets unrelated
   namespaces.
 - `<SEQ>` is the 1-based ordinal in original-document order, six digits, unique per
-  manifest. `MAX_OCCURRENCES = 999_999`; more is `TOO_MANY_OCCURRENCES`. The limit is
-  also capped at the capacity of six digits, so raising the constant cannot produce a
-  token that does not match the grammar.
+  manifest. `MAX_OCCURRENCES = 50_000` is a resource bound (see "Limits and the
+  candidate budget"); more is `TOO_MANY_OCCURRENCES`. The limit is also capped at the
+  capacity of six digits (999 999), so raising the constant cannot produce a token that
+  does not match the grammar.
 - No part of a token, id or namespace is derived from a value: no value, no base64 or
   hex of it, no hash of it.
 - Reserved prefix: if the original contains `[[CB`, compared case-insensitively
@@ -285,6 +287,42 @@ A span is never empty. The surviving spans are disjoint and ordered, and their o
 defines `<SEQ>`. These four rules are identified as `span-resolution/1`
 (`RESOLUTION_POLICY_ID`), one of the inputs of `POLICY_VERSION`.
 
+### Limits and the candidate budget
+
+`MAX_DOCUMENT_BYTES` is 25 MiB. `MAX_OCCURRENCES = 50_000` is a resource bound, not the
+capacity of the token grammar: the six digits of `<SEQ>` stay the hard ceiling, so the
+effective limit is `min(MAX_OCCURRENCES, 999_999)`.
+
+The first implementation allowed 999 999 and enforced it only after both candidate
+sources, the table of spans and the sort had been built in full. Measured, one
+occurrence costs about 1.5 KB while a document is masked (a 5 MiB document with 212 547
+occurrences peaked at 352 MiB), and a crowded document was refused late and dear: 10 MiB
+of `王大明 ` (a million spans) after 19 s and 650 MiB, 24 MiB after 48 s and 1.6 GiB. A
+bound that is only checked at the end bounds nothing, so each stage checks the part it
+can see:
+
+1. Candidate budget. The budget is `_CANDIDATES_PER_OCCURRENCE = 4` times the effective
+   limit, 200 000 by default. A running count is kept while the candidates of the
+   original are collected; the first one past the budget raises `TOO_MANY_OCCURRENCES`,
+   before the replay starts and before any value span is cut.
+2. Replay. It receives what is left of the budget as `limit` and counts its
+   replacements; the one past it raises. Without a `limit` it behaves as before.
+3. Sweep. `_resolve_spans` raises at the first kept span past the limit, before any byte
+   offset, token or manifest entry exists. `mask_document` has no check of its own after
+   the fact.
+
+Both constants are read at call time, and every refusal is raised outside any `except`
+block. A document may propose four candidates per allowed occurrence; real ones need
+fewer (a name with its label, a phone number and an email are three spans and seven
+candidates). When a document has more than one problem, the stage that is reached first
+decides the code: a `SPAN_CONFLICT` behind the 50 001st span is never found.
+
+With these checks the crowded documents above are refused in 3.6 s (peak RSS 62 MiB) and
+8.2 s (87 MiB), and the 5 MiB one, now over the limit, in 0.4 s (55 MiB). A document of
+49 998 occurrences (1.2 MiB) is still accepted, in 3.0 s at 102 MiB; one with 50 001 is
+refused in 1.1 s. What a refusal still costs is the linear scan of the text by the
+patterns that find nothing, and no memory beyond it.
+
 ### `mask_document` order
 
 1. `original` is `bytes`, else `INVALID_INPUT_TYPE` (no `str`, `bytearray` or
@@ -295,7 +333,10 @@ defines `<SEQ>`. These four rules are identified as `span-resolution/1`
    before decoding, so an oversized invalid input is reported as oversized.
 5. Strict UTF-8 decode, else `INVALID_UTF8`.
 6. Reserved prefix, else `RESERVED_TOKEN_COLLISION`.
-7. Candidates, value spans, resolution (`SPAN_CONFLICT`), then the occurrence limit.
+7. Candidates, value spans and resolution (`SPAN_CONFLICT`). The occurrence limit is
+   enforced inside, as early as the work allows: `TOO_MANY_OCCURRENCES` comes from the
+   candidate budget, the replay or the sweep (see "Limits and the candidate budget"),
+   and nothing is built from a document that crosses it.
 8. Convert boundaries to byte offsets (one linear pass); assemble the masked bytes in one
    pass from original byte slices and tokens, recording masked offsets; compute both
    digests.
@@ -311,6 +352,13 @@ keeps the whole raw input in `.object`; it must not become a context.
 `check_release_text(text, manifest)` is the outbound and release rule (issue section 5:
 "everything else is scanned too"). Only tokens issued by this manifest are accepted;
 everything else is scanned.
+
+The manifest is judged first, because the tokens come from it. A manifest that
+`mask_document` could not have made (occurrences that are not a tuple of well-formed
+`Occurrence`, a wrong schema or namespace, a token that does not match its sequence,
+class or namespace, a duplicate) is `MANIFEST_INVALID` before any token of the text is
+read, never a `TypeError`. These are the structure rules of Mode A step 6 that need no
+masked artifact; the bom comparison and the masked ranges stay with restore.
 
 1. Every occurrence of `[[CB`, case-insensitive, must start a full-grammar token
    (`TOKEN_RE` matched at that index). Otherwise `MALFORMED_TOKEN` (`[[CB1:` fragments,
@@ -378,10 +426,17 @@ failure:
    manifest, which pass every structural check.
 10. Return the bytes. Never earlier: nothing partial leaves on any failure.
 
+Digests are compared by one function. Both sides must be a `str` of exactly 64 lowercase
+hex digits, and only then are they compared with `hmac.compare_digest`. Anything else
+(bytes, upper case, a lone surrogate, `None`) is simply not equal, and two equal malformed
+values are not equal either. Nothing is encoded, so a digest in a tampered manifest
+cannot raise.
+
 Consequences worth pinning: a swapped pair of unequal-length values fails step 6
 (`MANIFEST_INVALID`); a swapped pair of equal-length values or a replaced
-`original_sha256` fails step 9; tampering with the masked bytes alone fails step 4;
-tampering plus a forged `masked_sha256` reaches step 7 and gets the token-level code.
+`original_sha256` fails step 9; tampering with the masked bytes alone fails step 4, as
+does a `masked_sha256` that is no well-formed digest; tampering plus a forged
+`masked_sha256` reaches step 7 and gets the token-level code.
 
 ## Registry (RAM stand-in for the PR B vault)
 
@@ -397,7 +452,10 @@ section 4.A.4 asks for: callers hold a `manifest_id`, never a manifest.
   versions, is `VERSION_CONTENT_MISMATCH`: a version is immutable and reprocessing
   needs a new version. A retry does not extend retention: the first deadline stays. A
   failed `issue` (any refusal, including `ResidualPiiBlocked`) registers nothing, so
-  the binding is not left half-used.
+  the binding is not left half-used. The size limit is checked after the argument checks
+  and before the original is hashed: an oversized document is `DOCUMENT_TOO_LARGE`
+  whether or not the binding exists (never `VERSION_CONTENT_MISMATCH`), and it costs no
+  hashing.
 - `restore_original(masked, *, manifest_id, binding) -> bytes`. A manifest that is
   unknown, discarded or expired (`clock() >= retention_deadline`; it is purged on
   access) gives `LEGACY_MAPPING_UNAVAILABLE` when `masked` contains an exact legacy
@@ -434,13 +492,13 @@ needs (random per-occurrence ids, the entity type in the manifest and in the tok
 | Code | Raised when |
 | --- | --- |
 | `INVALID_INPUT_TYPE` | a document, masked artifact, text or registry argument has the wrong type |
-| `DOCUMENT_TOO_LARGE` | `len(original) > MAX_DOCUMENT_BYTES` |
+| `DOCUMENT_TOO_LARGE` | `len(original) > MAX_DOCUMENT_BYTES` (`mask_document`, and `issue` before it hashes) |
 | `INVALID_UTF8` | the document, or a masked artifact being restored, is not strict UTF-8 |
 | `INVALID_BINDING` | a binding field fails the opaque-id rule, or the argument is not a `DocumentBinding` |
 | `INVALID_RETENTION_DEADLINE` | the deadline is not `None` or a finite non-`bool` real number |
 | `RESERVED_TOKEN_COLLISION` | the original contains `[[CB`, any case |
 | `SPAN_CONFLICT` | two value spans partially overlap |
-| `TOO_MANY_OCCURRENCES` | more than `MAX_OCCURRENCES` spans survive resolution |
+| `TOO_MANY_OCCURRENCES` | more candidates than the budget, or more spans than the limit (see "Limits and the candidate budget"); raised as soon as it is known |
 | `MALFORMED_TOKEN` | a `[[CB` occurrence does not start a full-grammar token |
 | `UNKNOWN_TOKEN` | a full-grammar token was not issued by this manifest |
 | `DUPLICATE_TOKEN` | a registered token appears more than once (restore) |
@@ -448,8 +506,8 @@ needs (random per-occurrence ids, the entity type in the manifest and in the tok
 | `TOKEN_POSITION_MISMATCH` | registered tokens appear once each but at other offsets (restore) |
 | `BINDING_MISMATCH` | the supplied binding differs from the manifest binding |
 | `RESTORE_NOT_PERMITTED` | the manifest restore policy is not `original_in_place` |
-| `MASKED_DIGEST_MISMATCH` | the masked bytes do not match the manifest digest |
-| `MANIFEST_INVALID` | the manifest fails the structure checks, or is not a manifest |
+| `MASKED_DIGEST_MISMATCH` | the masked bytes do not match the manifest digest, or that digest is not a lowercase hex digest |
+| `MANIFEST_INVALID` | the manifest fails the structure checks, or is not a manifest (`restore_original`; `check_release_text` for the checks that need no masked artifact) |
 | `RESTORE_DIGEST_MISMATCH` | the rebuilt bytes do not match `original_sha256` |
 | `VERSION_CONTENT_MISMATCH` | the registry already holds this binding with other content or versions |
 | `MAPPING_UNAVAILABLE` | the registry has no live manifest for the id (unknown, discarded, expired) |
@@ -552,6 +610,8 @@ A later PR may claim a capability only when the evidence in its row exists.
 | Tokens reused across cases | Random per-manifest namespace; binding equality is checked first |
 | Mapping outlives its purpose | RAM only, retention deadline, `discard` |
 | Core is wired into a flow before PR B/C | No-import contract tests; docs call it an experimental core |
+| A crowded or oversized document costs minutes and gigabytes before it is refused | `MAX_OCCURRENCES = 50_000`, a candidate budget, each stage checks the bound it can see, size before hashing; a `tracemalloc` test on a crowded 3 MiB document |
+| A tampered manifest or digest ends in a raw exception instead of a code | One digest comparison that never encodes; the release scan judges the manifest first; every such refusal is tested through `assertRejected` (code only, no chained exception) |
 
 ## Verification
 
@@ -564,8 +624,11 @@ equal `mask_sensitive_text` on every corpus document, both repo fixtures and 400
 documents; its original ranges must agree with a slow character-level oracle, also on 600
 documents glued together at random and on synthetic patterns that start inside a
 placeholder; and a value the legacy masker hides must not be visible in an accepted
-document. All inputs are synthetic and the suite is deterministic: it asserts properties
-of random tokens, never their values, and holds no random-looking hex or base64 literal.
+document. Hardening classes cover tampered digest and manifest shapes, size before hashing
+in the registry, and the occurrence budget, including a memory bound measured with
+`tracemalloc` on a crowded 3 MiB document. All inputs are synthetic and the suite is
+deterministic: it asserts properties of random tokens, never their values, and holds no
+random-looking hex or base64 literal.
 
 ```sh
 python3 -m unittest discover -s tests -p 'test_reversible_masking.py' -v
