@@ -34,6 +34,7 @@ import unittest
 import urllib.parse
 import uuid
 import warnings
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import patch
@@ -2200,6 +2201,298 @@ class LegacyApiUnchangedTests(CoreTestCase):
         self.assertEqual(frozenset(NON_NAME_TERMS), terms_before)
         self.assertEqual(mask_sensitive_text(GOLDEN_TEXT), legacy_before)
         self.assertEqual(legacy_before.text, LEGACY_GOLDEN)
+
+
+# What the legacy masker hides, and the core must hide too: (text, the value shapes in it). Only the
+# value is listed for a labeled shape, because the core keeps the label.
+PARITY_LABELED = (
+    ("申請人：王大明", ("王大明",)),
+    ("業主為陳小美", ("陳小美",)),
+    ("聯絡人 林美玲", ("林美玲",)),
+    ("統一編號：12345678", ("12345678",)),
+    ("統編87654321", ("87654321",)),
+    ("護照號碼：AB123456", ("AB123456",)),
+    ("居留證號 AB12345678", ("AB" + "12345678",)),  # split: a quoted hex-looking literal trips detect-secrets
+    ("出生日期：民國80年1月2日", ("民國80年1月2日",)),
+    ("生日 1990/01/02", ("1990/01/02",)),
+    ("地號：文化段123-4", ("文化段123-4",)),
+    ("案件編號：NTPC-12345", ("NTPC-12345",)),
+    ("銀行帳號：1234-5678-90", ("1234-5678-90",)),
+    ("案件地址：新北市板橋區文化路一段123號", (ADDRESS_A,)),
+)
+PARITY_BARE_NAME = "林志豪"
+PARITY_UNLABELED = (
+    (EMAIL_A, (EMAIL_A,)),
+    ("a.b+c@test.example.org", ("a.b+c@test.example.org",)),
+    (MOBILE_A, (MOBILE_A,)),
+    ("02-12345678", ("02-12345678",)),
+    (ID_A, (ID_A,)),
+    (PARITY_BARE_NAME, (PARITY_BARE_NAME,)),
+)
+PARITY_FILLER = tuple((text, ()) for text in ("請補件", "說明", "備註", "3樓", "120", "文到30日內", "用途H-2組"))
+PARITY_SEPARATORS = ("", " ", "，", "：", "\n", "\r\n")
+PARITY_EMAILS = PARITY_UNLABELED[:2]
+# Labeled shapes whose pattern runs before the email pattern: once they are replaced, the email
+# next to them has a boundary in the legacy masker's working text that the original text lacks.
+PARITY_BOUNDARY = tuple(
+    shape
+    for shape in PARITY_LABELED
+    if shape[0].startswith(("申請人", "業主", "聯絡人", "統一編號", "統編", "護照", "居留證"))
+)
+
+# (text, expected masked text with each token shown as <TYPE>, values in document order)
+GLUED_TAX_ID_CASES = (
+    ("聯絡信箱 owner@example.com統一編號：12345678\n", "聯絡信箱 <EMAIL>統一編號：<TAX_ID>\n", [EMAIL_A, "12345678"]),
+    (
+        "信箱：a.b+c@test.example.org統一編號：12345678\n",
+        "信箱：<EMAIL>統一編號：<TAX_ID>\n",
+        ["a.b+c@test.example.org", "12345678"],
+    ),
+)
+# More shapes the legacy masker hides only because an earlier replacement made a boundary.
+OTHER_GLUED_CASES = (
+    ("聯絡信箱 owner@example.com申請人：王大明\n", "聯絡信箱 <EMAIL>申請人：<PERSON>\n", [EMAIL_A, NAME_A]),
+    ("owner@example.com護照號碼：AB123456\n", "<EMAIL>護照號碼：<IDENTITY_DOCUMENT>\n", [EMAIL_A, "AB123456"]),
+    ("owner@example.com統編87654321\n", "<EMAIL>統編<TAX_ID>\n", [EMAIL_A, "87654321"]),
+    ("申請人：王大明owner@example.com\n", "申請人：<PERSON><EMAIL>\n", [NAME_A, EMAIL_A]),
+    ("案件地址：新北市板橋區文化路一段123號王大明\n", "案件地址：<ADDRESS><PERSON>\n", [ADDRESS_A, NAME_A]),
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class ParityDoc:
+    text: str
+    values: tuple[str, ...]
+    glued_email: bool  # an email shape touches a boundary shape with nothing in between
+
+
+def parity_docs(count: int = 400, seed: int = 20241004) -> list[ParityDoc]:
+    """Seeded documents that glue labeled and unlabeled shapes, Han filler and digits together."""
+    rng = random.Random(seed)
+    email_texts = {shape[0] for shape in PARITY_EMAILS}
+    boundary_texts = {shape[0] for shape in PARITY_BOUNDARY}
+    docs = []
+    for _ in range(count):
+        parts = []
+        for _ in range(rng.randint(2, 7)):
+            pool = rng.choices((PARITY_LABELED, PARITY_UNLABELED, PARITY_FILLER), weights=(5, 4, 3))[0]
+            parts.append(rng.choice(pool))
+        glued = False
+        if rng.random() < 0.4:
+            email, labeled = rng.choice(PARITY_EMAILS), rng.choice(PARITY_BOUNDARY)
+            first, second = (email, labeled) if rng.random() < 0.5 else (labeled, email)
+            parts.insert(rng.randrange(len(parts) + 1), (first[0] + second[0], first[1] + second[1]))
+            glued = True
+        text, values = parts[0][0], list(parts[0][1])
+        for (previous, _), (piece, piece_values) in zip(parts, parts[1:]):
+            separator = rng.choice(PARITY_SEPARATORS)
+            if not separator and (
+                (previous in email_texts and piece in boundary_texts)
+                or (previous in boundary_texts and piece in email_texts)
+            ):
+                glued = True
+            text += separator + piece
+            values += piece_values
+        docs.append(ParityDoc(text + "\n", tuple(values), glued))
+    return docs
+
+
+# Fragments for documents that are glued together at random: labels, values, half a placeholder, the
+# pieces of an email, a place name. Most such documents mean nothing; what matters is that the
+# legacy masker finds something in them in strange ways.
+ORACLE_SNIPPETS = (
+    "申請人", "業主", "所有權人", "聯絡人", "姓名", "承辦人", "為", "：", ":", " ", "\n", "\r\n", "\t", "，", "。",
+    "\N{IDEOGRAPHIC SPACE}", "統一編號", "統編", "營業人統編", "護照", "護照號碼", "居留證號", "出生", "生日", "出生日期",
+    "DOB", "地號", "建號", "案件編號", "申請案號", "銀行帳號", "12345678", "87654321", "AB123456", "A123123123",
+    "F234234234", "0912-345-678", "0933222111", "02-12345678", "1990/01/02", "80.1.2", "民國80年1月2日",
+    "owner@example.com", "a.b+c@test.example.org", "clerk_01@city.gov.tw", "@", ".com", "example.org", "owner",
+    "王大明", "林志豪", "陳建宏", "黃雅婷", "張大華", "方式", "高度", "許可", "林地", "王", "李", "劉", "新北市",
+    "板橋區", "文化路", "一段", "123號", "之2", "巷", "弄", "路", "街", "號", "市", "縣", "區", "段", "小段", "文化段",
+    "地址", "住址", "地點", "位置", "案件", "戶籍", "施工", "[MASKED_EMAIL]", "[MASKED_", "]", "[", "NTPC-12345",
+    "1234-5678-90", "12", "3", "0", "9", "-", "/", ".", "_", "+", "A", "z", "請補件", "說明", "備註", "3樓", "用途",
+    "依規定", "第77條之2", "公分",
+)  # fmt: skip
+
+
+def adversarial_docs(count: int = 600, seed: int = 20241005) -> list[str]:
+    rng = random.Random(seed)
+    return ["".join(rng.choice(ORACLE_SNIPPETS) for _ in range(rng.randint(6, 30))) for _ in range(count)]
+
+
+def legacy_replay_oracle(text: str, patterns=PATTERNS) -> tuple[list[tuple[int, int, str]], str]:
+    """The legacy masker over one list entry per character, each remembering the original range it stands for.
+
+    Slow and plain, written separately from the core's piece-based replay so that the two can be compared:
+    a replacement covers the union of the origins of the characters it replaces, and every character of a
+    placeholder (or of what is left of one) keeps the whole origin range of the match it came from.
+    """
+    entries = [(char, index, index + 1) for index, char in enumerate(text)]
+    replacements: list[tuple[int, int, str]] = []
+    for name, pattern in patterns:
+        working = "".join(char for char, _, _ in entries)
+        rebuilt: list[tuple[str, int, int]] = []
+        cursor = 0
+        for match in pattern.finditer(working):
+            if name == "personal_name" and match.group(0) in NON_NAME_TERMS:
+                continue
+            first, last = match.span()
+            start = min(origin_start for _, origin_start, _ in entries[first:last])
+            end = max(origin_end for _, _, origin_end in entries[first:last])
+            rebuilt += entries[cursor:first]
+            rebuilt += [(char, start, end) for char in "[MASKED_" + name.upper() + "]"]
+            replacements.append((start, end, name))
+            cursor = last
+        if rebuilt:
+            entries = rebuilt + entries[cursor:]
+    return replacements, "".join(char for char, _, _ in entries)
+
+
+# Proves #28 §10 PR A item 5 (regression): the core never masks less than the legacy masker.
+class LegacyParityTests(CoreTestCase):
+    def assertMaskedAsExpected(self, text: str, expected: str, values: list[str]) -> None:
+        legacy = mask_sensitive_text(text).text
+        for value in values:
+            self.assertNotIn(value, legacy)  # the legacy masker hides every one of them
+        raw = text.encode("utf-8")
+        safe, manifest = self.mask(raw)
+        self.assertEqual(normalize_tokens(safe.masked_text), expected)
+        self.assertEqual([o.original_value.reveal().decode("utf-8") for o in manifest.occurrences], values)
+        self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+        self.assertEqual(find_sensitive_classes(safe.masked_text), [])
+        self.assertEqual(find_residual_sensitive_classes(safe.masked_text), [])
+        check_geometry(self, raw, safe, manifest)
+
+    def test_email_glued_to_a_tax_id_label_is_masked_like_the_legacy_masker(self) -> None:
+        # The email only ends once the tax id has become "[": a Han character is a word character
+        # for the email pattern's lookahead, so the original text alone never shows the end.
+        for text, expected, values in GLUED_TAX_ID_CASES:
+            with self.subTest(text=text):
+                self.assertMaskedAsExpected(text, expected, values)
+
+    def test_other_values_the_sequential_masker_only_finds_after_an_earlier_replacement_are_masked(self) -> None:
+        for text, expected, values in OTHER_GLUED_CASES:
+            with self.subTest(text=text):
+                self.assertMaskedAsExpected(text, expected, values)
+
+    def drift_texts(self) -> list[str]:
+        texts = [doc.raw.decode("utf-8") for doc in CORPUS]
+        texts += [
+            (FIXTURE_DIR / name).read_text(encoding="utf-8")
+            for name in ("demo_correction_notice.txt", "secure_upload_canary.txt")
+        ]
+        texts += [ALL_CLASSES_TEXT, GOLDEN_TEXT]
+        texts += [case[0] for case in GLUED_TAX_ID_CASES + OTHER_GLUED_CASES]
+        texts += [doc.text for doc in parity_docs()]
+        return texts
+
+    def test_the_replay_of_the_legacy_masker_is_exact(self) -> None:
+        # The core relies on a private replay of mask_sensitive_text that keeps track of which original
+        # range each piece of its working text stands for. If the two ever drift apart, this fails.
+        texts = self.drift_texts()
+        self.assertGreaterEqual(len(texts), 400)
+        for text in texts:
+            replacements, working = rm._replay_legacy_masker(text)
+            legacy = mask_sensitive_text(text)
+            self.assertEqual(working, legacy.text, repr(text))
+            self.assertEqual(
+                Counter(name for _, _, name in replacements),
+                Counter({name: count for name, count in legacy.counts.items() if count}),
+                repr(text),
+            )
+            for index, (start, end, name) in enumerate(replacements):
+                self.assertIn(name, rm.ENTITY_TYPES)
+                self.assertTrue(0 <= start < end <= len(text), (text, start, end))
+                # Ranges of the original text nest or are disjoint; none crosses another.
+                for other_start, other_end, _ in replacements[index + 1 :]:
+                    crossing = start < other_start < end < other_end or other_start < start < other_end < end
+                    self.assertFalse(crossing, (text, (start, end), (other_start, other_end)))
+
+    def test_the_alignment_map_agrees_with_a_character_level_oracle(self) -> None:
+        # Equal working text does not show that the original ranges are right; the ranges are what ends
+        # up in the manifest. The oracle tracks one origin range per character instead of per piece.
+        texts = self.drift_texts() + adversarial_docs()
+        replacements = 0
+        for text in texts:
+            expected = legacy_replay_oracle(text)
+            self.assertEqual(rm._replay_legacy_masker(text), expected, repr(text))
+            replacements += len(expected[0])
+        self.assertGreater(replacements, 1500)  # the random documents do contain matches
+
+    def test_a_match_that_touches_a_placeholder_stands_for_its_whole_original_range(self) -> None:
+        # No legacy pattern can start or end inside a placeholder, so the real patterns never exercise this
+        # rule; these do. The tax id becomes a placeholder, the email match starts inside it, the landline
+        # match is only what is left of it in front of the next placeholder, and the last match covers two
+        # placeholders and a character of the original.
+        patterns = (
+            ("name", re.compile(r"qq")),
+            ("tax_id", re.compile(r"\d{8}")),
+            ("email", re.compile(r"ASKED_TAX_ID\]ab")),
+            ("landline", re.compile(r"\[M(?=\[)")),
+            ("birth_date", re.compile(r"\[MASKED_LANDLINE\]\[MASKED_EMAIL\]z")),
+        )
+        text = "qqx12345678abz"
+        expected = (
+            [(0, 2, "name"), (3, 11, "tax_id"), (3, 13, "email"), (3, 11, "landline"), (3, 14, "birth_date")],
+            "[MASKED_NAME]x[MASKED_BIRTH_DATE]",
+        )
+        with patch.object(rm, "PATTERNS", patterns):
+            self.assertEqual(rm._replay_legacy_masker(text), expected)
+        self.assertEqual(legacy_replay_oracle(text, patterns), expected)
+
+    def test_a_name_directly_in_front_of_an_address_label_is_masked_with_the_address(self) -> None:
+        # No name pattern matches a name that a Han character follows, and the legacy masker hides it
+        # as part of the address match. The label rule must not keep it as if it were a label.
+        for prefix in (PARITY_BARE_NAME, "黃雅婷", "依規定" + PARITY_BARE_NAME, "陳建宏戶籍"):
+            for word in ("地址", "住址"):
+                text = f"{prefix}{word}：{ADDRESS_A}\n"
+                with self.subTest(text=text):
+                    legacy = mask_sensitive_text(text).text
+                    self.assertEqual(legacy, "[MASKED_ADDRESS]\n")
+                    raw = text.encode("utf-8")
+                    safe, manifest = self.mask(raw)
+                    self.assertEqual(normalize_tokens(safe.masked_text), "<ADDRESS>\n")
+                    self.assertEqual(
+                        [o.original_value.reveal().decode("utf-8") for o in manifest.occurrences],
+                        [text.rstrip("\n")],
+                    )
+                    self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+
+    def test_known_qualifiers_still_keep_the_address_label(self) -> None:
+        for qualifier in ("", "案件", "戶籍", "通訊", "聯絡", "施工", "工程", "建物", "基地", "本案"):
+            for word in ("地址", "住址", "地點", "位置"):
+                label = f"{qualifier}{word}："
+                with self.subTest(label=label):
+                    raw = f"{label}{ADDRESS_A}\n".encode()
+                    safe, manifest = self.mask(raw)
+                    self.assertEqual(normalize_tokens(safe.masked_text), f"{label}<ADDRESS>\n")
+                    self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+
+    def test_the_core_never_leaves_visible_what_the_legacy_masker_masks(self) -> None:
+        docs = parity_docs()
+        hidden_by_legacy = accepted_hidden = accepted = 0
+        for doc in docs:
+            legacy = mask_sensitive_text(doc.text).text
+            glued_and_hidden = doc.glued_email and any(
+                email in doc.values and email not in legacy for email in (shape[0] for shape in PARITY_EMAILS)
+            )
+            hidden_by_legacy += glued_and_hidden
+            try:
+                safe, manifest = self.mask(doc.text)
+            except ReversibleMaskingError as error:
+                self.assertEqual(error.code, "SPAN_CONFLICT", doc.text)  # fail closed, never partial
+                continue
+            except ResidualPiiBlocked:
+                continue
+            accepted += 1
+            accepted_hidden += glued_and_hidden
+            self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), doc.text.encode("utf-8"))
+            for value in doc.values:
+                if value not in legacy:
+                    self.assertNotIn(value, safe.masked_text, doc.text)
+        # The property would be vacuous without the glued cases it exists for.
+        self.assertGreaterEqual(hidden_by_legacy, 40)
+        self.assertGreaterEqual(accepted_hidden, 20)
+        self.assertGreater(accepted, len(docs) // 2)
 
 
 CORE_SOURCE_PATH = WORKER_DIR / "reversible_masking.py"

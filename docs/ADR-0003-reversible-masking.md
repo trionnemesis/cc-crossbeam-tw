@@ -42,8 +42,11 @@ imports it.
 
 Design rules that every later PR inherits:
 
-1. Detection reuses `masking.PATTERNS` and the same `NON_NAME_TERMS` filter. Every
-   pattern runs over the same decoded original, never over replaced text.
+1. Detection reuses `masking.PATTERNS` and the same `NON_NAME_TERMS` filter. Its
+   candidates cover everything `mask_sensitive_text` replaces: every pattern over the
+   decoded original, plus an exact replay of the legacy sequential masker whose matches
+   are mapped back to the original. Every recorded position is a position in the original
+   text.
 2. Detection proposes; deterministic code decides. No model is involved.
 3. The private mapping and the safe document are different types. The safe type has no
    field that can hold an original value, an original offset or the original digest.
@@ -182,10 +185,46 @@ least 2 000 generated tokens covering every `<TYPE>`, alone and joined.
 
 ### Candidates
 
-Every `PATTERNS` entry is run with `finditer` over the same decoded original. A match
-of `personal_name` is dropped when it is in `NON_NAME_TERMS` (the same filter as the
-legacy masker, `masking._is_masked_class`). The index of the entry in `PATTERNS` is its
-priority: a lower index wins.
+Two sources feed the candidate list, so that the candidates are a superset of what
+`mask_sensitive_text` replaces:
+
+1. Every `PATTERNS` entry is run with `finditer` over the decoded original. A match of
+   `personal_name` is dropped when it is in `NON_NAME_TERMS` (the same filter as the
+   legacy masker, `masking._is_masked_class`).
+2. A private replay of `mask_sensitive_text`: the patterns in `PATTERNS` order over a
+   working text in which every earlier replacement stands as `[MASKED_<CLASS>]`, with the
+   same filter and the same `finditer` semantics. The replay carries an alignment map
+   from its working text back to the original: text that was never replaced maps one to
+   one, and a placeholder maps to the whole original range of the match it replaced, so a
+   match that touches a placeholder covers that placeholder's whole range, plus whatever
+   original text the match also covers. It returns the original range and class of every
+   replacement, and its final working text, which must equal
+   `mask_sensitive_text(text).text` (a test compares the two on every corpus document,
+   both repo fixtures and 400 seeded documents).
+
+Why a second source: the legacy masker runs the patterns one after another, so a later
+pattern can see a boundary that the original text lacks. The email pattern ends in
+`(?![\w.-])`, and a Han character is a word character. In
+`聯絡信箱 owner@example.com統一編號：12345678` the email therefore has no end over the
+original alone, and the first source finds nothing. The legacy masker replaces the tax id
+first; the `[` that takes its place is the boundary, and the email is masked. Without the
+replay the core would have left the email in the clear, and `residual_pii`, which has the
+same lookarounds, would not have blocked it.
+
+Both sources yield ranges of the original. Each goes through the value-span step and the
+resolution rules below, so a range proposed twice is one span, and a range of one source
+that crosses a range of the other is a `SPAN_CONFLICT` like any other. The index of the
+entry in `PATTERNS` is the priority of a class: a lower index wins.
+
+Issue #28 rules out running the next regex over replaced text as the way to record
+offsets. The replay does not do that. It is a detection view with an exact alignment map
+back to the original, the kind issue section 4.A.1 allows, and never a source of offsets
+by itself: the only positions that reach the manifest are code-point indices of the
+original, taken from the ranges the map returns.
+
+What is finally masked is decided by the next two steps. Nothing the legacy masker hides
+may stay visible in front of a label, which is why the `address` label rule below accepts
+only a known qualifier before the label word.
 
 ### Value span (label preservation)
 
@@ -204,7 +243,7 @@ the value (over-masking, never under-masking).
 | `birth_date` (ignore case) | `(?:出生年月日\|出生日期\|出生\|生日\|D\.?O\.?B\.?)\s*(?:為\|[:：])?\s*` |
 | `parcel_id` | `(?:地號\|建號)\s*[:：]?\s*` |
 | `bank_or_case_id` | `(?:銀行帳號\|帳戶號碼\|案件編號\|申請案號)\s*[:：]?\s*` |
-| `address` | `[\u3400-\u9fff]{0,6}(?:地址\|住址\|地點\|位置)\s*(?:為\|[:：])?\s*` |
+| `address` | `(?:案件\|戶籍\|通訊\|聯絡\|施工\|工程\|建物\|基地\|本案)?(?:地址\|住址\|地點\|位置)\s*(?:為\|[:：])?\s*` |
 
 Classes without a rule (`taiwan_id`, `email`, `mobile`, `landline`, `personal_name`) mask
 the whole match.
@@ -214,6 +253,12 @@ true, the same set as regex `\s`) is trimmed from the value span. This is not co
 the `birth_date` pattern ends in `\s*`, so `生日：1990/01/02\r\n` matches with the
 line terminator inside the value, and the legacy masker swallows it. Masking that span
 would join two lines in the safe document. The trimmed bytes stay outside the token.
+
+The `address` rule accepts only a known qualifier (`案件`, `戶籍`, `通訊`, `聯絡`, `施工`,
+`工程`, `建物`, `基地`, `本案`) or nothing in front of the label word. Any other Han text
+there can be a name (`林志豪地址：新北市…`), which the legacy masker hides as part of the
+address match; with no label recognised the whole match is the value, so the name is
+masked with the address and the label is lost.
 
 Known gap, kept on purpose: the label is only recognised at the start of the match.
 `說明五：地址 新北市…` (a match that starts earlier than the label) masks the whole
@@ -444,21 +489,42 @@ A later PR may claim a capability only when the evidence in its row exists.
 
 ## Known limitations
 
-- Detector recall is unchanged. The core masks what `PATTERNS` finds and nothing else;
-  "no hit" never means "safe to send". Identifiers written entirely in full-width
-  characters (`Ａ１２３４５６７８９`, `０９１２－３４５－６７８`) are found by neither the masking nor
+- Detector recall is that of the legacy masker, not better. The core masks what
+  `PATTERNS` finds, over the original and in the legacy masker's sequential run, and
+  nothing else; "no hit" never means "safe to send". Identifiers written entirely in
+  full-width characters (`Ａ１２３４５６７８９`, `０９１２－３４５－６７８`) are found by neither the masking nor
   the residual detector. A value that only contains full-width digits after an ASCII
   prefix (`A1２３４５６７８９`) is found, because `\d` accepts them, and is restored
   byte for byte: values are never normalized.
   An email whose local part contains a combining mark is masked only after the mark
   (`owne` + U+0301 + `r@example.com` leaves `owné` in the clear, and the residual scan
   then sees no email); one whose domain contains a combining mark is not found at all.
-  There is no normalization view or alignment map (issue section 4.A.1 allows deferring
-  it). A later detection view must map back to original byte offsets.
+  There is no normalization view (issue section 4.A.1 allows deferring it); the only
+  alignment map is the one of the legacy replay above. A later detection view must map
+  back to original byte offsets.
 - Unlabeled `personal_name` is a surname-list heuristic: it can mask ordinary words
   (`NON_NAME_TERMS` trims the common ones) and can miss a name.
 - Over-masking is the failure mode by design: when no label rule matches at the start of
   a detector match, the whole match is masked, including any text before the label.
+- An email directly next to Han text with no separator (`信箱owner@example.com`,
+  `owner@example.com請回覆`) is found by neither `masking.PATTERNS` nor `residual_pii`: both
+  end an email with `\w` lookarounds, and a Han character is a word character. This is
+  already so in the production path, so it is not a regression of the core, and fixing it
+  means changing the legacy detectors, which is out of PR A scope. The replay does not
+  help: it reproduces the legacy masker, and the legacy masker does not mask these either.
+  Only a neighbour that is masked can expose such an email: once `owner@example.com林志豪`
+  has a token in place of the name, the `[` gives the email a boundary, `residual_pii`
+  finds it and the document is blocked, exactly as the legacy masker's own output would be.
+- Values written back to back can be cut differently by the two candidate sources, or by
+  two patterns over the original, and the ranges then cross. The document is refused with
+  `SPAN_CONFLICT` (fail closed). The usual case is a birth date or a parcel number followed
+  on the same line by an address without a comma
+  (`生日：民國80年1月2日 案件地址：新北市板橋區文化路一段123號`,
+  `文化段123地號 案件地址：新北市板橋區文化路一段123號`): run over the original, the address
+  pattern starts inside the last Han character of the earlier value. The legacy masker has
+  replaced the earlier value before the address pattern runs, so it resolves the case by
+  pattern order and never refuses. A comma, a full stop or a line break between the two
+  values avoids it.
 - Only `\n` ends a line for the existing patterns. In documents that use a lone `\r` or
   U+2028 as separator, the address pattern can run across it and the separator can end
   up inside a masked span. The round trip stays exact; CRLF and LF documents are not
@@ -493,6 +559,11 @@ A later PR may claim a capability only when the evidence in its row exists.
 carries a comment naming the item of the PR A checklist in issue #28 section 10 that it
 proves (round trip, location and isolation, rejection, leak checks, golden preservation,
 separation of interfaces), plus contract tests for the grammar, the versions and this
+document. A parity class guards candidate coverage: the replay of the legacy masker must
+equal `mask_sensitive_text` on every corpus document, both repo fixtures and 400 seeded
+documents; its original ranges must agree with a slow character-level oracle, also on 600
+documents glued together at random and on synthetic patterns that start inside a
+placeholder; and a value the legacy masker hides must not be visible in an accepted
 document. All inputs are synthetic and the suite is deterministic: it asserts properties
 of random tokens, never their values, and holds no random-looking hex or base64 literal.
 

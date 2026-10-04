@@ -17,6 +17,7 @@ Failures raise ``ReversibleMaskingError`` (a stable code and nothing else) or th
 
 from __future__ import annotations
 
+import bisect
 import hashlib
 import hmac
 import json
@@ -29,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Callable, Iterable, Mapping, Sequence
+from typing import Callable, Iterable, Mapping, NamedTuple, Sequence
 
 from .masking import NON_NAME_TERMS, PATTERNS, _is_masked_class
 from .residual_pii import ResidualPiiBlocked, find_residual_sensitive_classes
@@ -105,6 +106,8 @@ ENTITY_TYPES: Mapping[str, str] = MappingProxyType(
 # is what the correction rules read, so it stays and only the value is masked. A rule is
 # applied anchored at the start of the detector match; no match (or a match that would leave
 # no value) means the whole match is the value, which over-masks rather than under-masks.
+# The address rule accepts only a known qualifier in front of the label word: any other Han text
+# there can be a name, which the legacy masker hides as part of the address match.
 LABEL_RULES: Mapping[str, re.Pattern[str]] = MappingProxyType(
     {
         "name": re.compile(r"(?:申請人|業主|所有權人|聯絡人|姓名|承辦人)\s*(?:為|[:：])?\s*"),
@@ -116,7 +119,9 @@ LABEL_RULES: Mapping[str, re.Pattern[str]] = MappingProxyType(
         ),
         "parcel_id": re.compile(r"(?:地號|建號)\s*[:：]?\s*"),
         "bank_or_case_id": re.compile(r"(?:銀行帳號|帳戶號碼|案件編號|申請案號)\s*[:：]?\s*"),
-        "address": re.compile(r"[\u3400-\u9fff]{0,6}(?:地址|住址|地點|位置)\s*(?:為|[:：])?\s*"),
+        "address": re.compile(
+            r"(?:案件|戶籍|通訊|聯絡|施工|工程|建物|基地|本案)?(?:地址|住址|地點|位置)\s*(?:為|[:：])?\s*"
+        ),
     }
 )
 
@@ -404,22 +409,127 @@ def _value_span(name: str, text: str, start: int, end: int) -> tuple[int, int]:
     return start, end
 
 
+class _Piece(NamedTuple):
+    """A stretch of the legacy masker's working text, and the original range it stands for."""
+
+    text: str
+    start: int
+    end: int
+    # Original text maps one to one. A placeholder, or what is left of one, stands for the whole
+    # range of the match it replaced: that is all the working text still says about it.
+    literal: bool
+
+
+def _cut_piece(piece: _Piece, lo: int, hi: int) -> _Piece:
+    if piece.literal:
+        return _Piece(piece.text[lo:hi], piece.start + lo, piece.start + hi, True)
+    return _Piece(piece.text[lo:hi], piece.start, piece.end, False)
+
+
+def _piece_starts(pieces: Sequence[_Piece]) -> list[int]:
+    starts: list[int] = []
+    total = 0
+    for piece in pieces:
+        starts.append(total)
+        total += len(piece.text)
+    return starts
+
+
+def _cut_pieces(pieces: Sequence[_Piece], starts: Sequence[int], lo: int, hi: int) -> list[_Piece]:
+    """The pieces covering working text [lo, hi), the first and the last cut to fit."""
+    cut: list[_Piece] = []
+    index = bisect.bisect_right(starts, lo) - 1
+    while 0 <= index < len(pieces) and starts[index] < hi:
+        piece = pieces[index]
+        first = max(lo - starts[index], 0)
+        last = min(hi - starts[index], len(piece.text))
+        if first < last:
+            cut.append(_cut_piece(piece, first, last))
+        index += 1
+    return cut
+
+
+def _replay_legacy_masker(text: str) -> tuple[list[tuple[int, int, str]], str]:
+    """Replay ``masking.mask_sensitive_text`` and keep track of what its working text stands for.
+
+    That masker runs the patterns in order over text in which earlier matches are already
+    ``[MASKED_<CLASS>]``, so a later pattern can see a boundary that the original text lacks. In
+    "owner@example.com統一編號：12345678" the email only ends once the tax id has become "[",
+    because a Han character is a word character for the email pattern's lookahead; run over the
+    original alone, the email pattern finds nothing. Same patterns, same filter and the same match
+    semantics as the legacy masker, so nothing it masks is missed.
+
+    Returns the original (start, end, class) of every replacement, in code points, and the final
+    working text, which equals ``mask_sensitive_text(text).text`` (a test keeps the two from
+    drifting apart). A match that touches a placeholder stands for that placeholder's whole range,
+    so the ranges nest or are disjoint. They are candidates only: every position is a position in
+    the original text, which is why this is a detection view and not a second coordinate system.
+    """
+    pieces = [_Piece(text, 0, len(text), True)] if text else []
+    working = text
+    starts = _piece_starts(pieces)
+    replacements: list[tuple[int, int, str]] = []
+    for name, pattern in PATTERNS:
+        marker = f"[MASKED_{name.upper()}]"
+        rebuilt: list[_Piece] = []
+        cursor = 0  # working-text position up to which `rebuilt` is complete
+        for match in pattern.finditer(working):
+            # Same filter as the legacy masker; a rejected match stays in the text.
+            if not _is_masked_class(name, match.group(0)):
+                continue
+            first, last = match.span()
+            covered = _cut_pieces(pieces, starts, first, last)
+            start = min(piece.start for piece in covered)
+            end = max(piece.end for piece in covered)
+            rebuilt += _cut_pieces(pieces, starts, cursor, first)
+            rebuilt.append(_Piece(marker, start, end, False))
+            replacements.append((start, end, name))
+            cursor = last
+        if rebuilt:
+            rebuilt += _cut_pieces(pieces, starts, cursor, len(working))
+            pieces = rebuilt
+            working = "".join(piece.text for piece in pieces)
+            starts = _piece_starts(pieces)
+    return replacements, working
+
+
+def _candidate_ranges(text: str) -> list[tuple[int, int, str]]:
+    """Every range of ``text`` that something masks, as (start, end, detector class).
+
+    Two sources, so that the candidates are a superset of what ``mask_sensitive_text`` replaces:
+
+    * every pattern over the original text, which is where the labels sit; and
+    * the replay of the legacy sequential masker, which also finds what only becomes a match
+      once an earlier replacement has made a boundary.
+
+    Offsets are recorded in the original's coordinates only. Issue #28 rules out running the next
+    regex on replaced text as a way to record offsets; the replay is a detection view with an
+    exact alignment back to the original, never a source of positions by itself.
+    """
+    ranges = [
+        (match.start(), match.end(), name)
+        for name, pattern in PATTERNS
+        for match in pattern.finditer(text)
+        if _is_masked_class(name, match.group(0))
+    ]
+    ranges += _replay_legacy_masker(text)[0]
+    return ranges
+
+
 def _resolve_spans(text: str) -> list[tuple[int, int, str]]:
     """Disjoint value spans as (start, end, detector class), in code points of ``text``.
 
-    Every pattern runs over the same original text, never over replaced text, so every offset
-    is an original offset. Identical spans keep the lowest PATTERNS index, a span inside another
-    is absorbed by it, and a partial overlap refuses the document: merging would invent a type,
-    shrinking would mask less than a detector asked for.
+    Candidates come from both sources of ``_candidate_ranges`` and are cut down to their value.
+    Identical spans keep the lowest PATTERNS index, a span inside another is absorbed by it, and a
+    partial overlap refuses the document: merging would invent a type, shrinking would mask less
+    than a detector asked for.
     """
+    priority_of = {name: priority for priority, (name, _) in enumerate(PATTERNS)}
     best: dict[tuple[int, int], tuple[int, str]] = {}
-    for priority, (name, pattern) in enumerate(PATTERNS):
-        for match in pattern.finditer(text):
-            if not _is_masked_class(name, match.group(0)):
-                continue
-            span = _value_span(name, text, match.start(), match.end())
-            if span not in best or priority < best[span][0]:
-                best[span] = (priority, name)
+    for start, end, name in _candidate_ranges(text):
+        span = _value_span(name, text, start, end)
+        if span not in best or priority_of[name] < best[span][0]:
+            best[span] = (priority_of[name], name)
     # Longest first at equal starts, so an outer span is seen before anything inside it.
     ordered = sorted(best.items(), key=lambda item: (item[0][0], -item[0][1]))
     kept: list[tuple[int, int, str]] = []
