@@ -17,6 +17,7 @@ import base64
 import contextlib
 import copy
 import dataclasses
+import gc
 import hashlib
 import inspect
 import io
@@ -3401,6 +3402,327 @@ class RetentionDeadlineRangeTests(CoreTestCase):
             with self.subTest(deadline=deadline):
                 _, manifest = self.mask(raw, retention_deadline=deadline)
                 self.assertEqual(manifest.retention_deadline, deadline)
+
+
+MIB = 2**20
+
+
+def repeated(unit: str, size: int) -> str:
+    """`unit` repeated to at most `size` characters."""
+    return unit * (size // len(unit))
+
+
+def peak_memory(call) -> tuple[int, BaseException | None]:
+    """The most memory `call` allocates at once, in bytes, and what it raised (None if it returned).
+
+    Only what the call itself allocates is counted, so the input is built before this is called.
+    """
+    gc.collect()
+    tracemalloc.start()
+    error = None
+    try:
+        call()
+    except BaseException as caught:  # judged by the test afterwards, outside the measurement
+        error = caught
+    finally:
+        _, peak = tracemalloc.get_traced_memory()
+        tracemalloc.stop()
+    return peak, error
+
+
+def reference_token_verdict(text: str, registered: dict[str, int]) -> str | None:
+    """The token scan as it was first written, with every candidate in a list: the oracle for the streaming one.
+
+    `registered` maps each token of the manifest to the byte offset it was issued at. Returns the first category
+    that applies, in the documented order, or None when the tokens are all in order.
+    """
+    candidates = []
+    for prefix in re.finditer(re.escape("[[CB"), text, flags=re.IGNORECASE):
+        token = rm.TOKEN_RE.match(text, prefix.start())
+        candidates.append((prefix.start(), token.group(0) if token else None))
+    if any(token is None for _, token in candidates):
+        return "MALFORMED_TOKEN"
+    if any(token not in registered for _, token in candidates):
+        return "UNKNOWN_TOKEN"
+    found: dict[str, list[int]] = {}
+    for index, token in candidates:
+        found.setdefault(token, []).append(len(text[:index].encode("utf-8")))
+    if any(len(offsets) > 1 for offsets in found.values()):
+        return "DUPLICATE_TOKEN"
+    if any(token not in found for token in registered):
+        return "MISSING_TOKEN"
+    if any(found[token][0] != offset for token, offset in registered.items()):
+        return "TOKEN_POSITION_MISMATCH"
+    return None
+
+
+# Proves #28 §10 PR A item 3d (hardening): token scanning keeps bounded state however many prefixes the text holds.
+class TokenScanBoundedStateTests(CoreTestCase):
+    def setUp(self) -> None:
+        self.raw = corpus_doc("lf").raw  # a name and an email: two tokens
+        self.safe, self.manifest = self.mask(self.raw)
+        self.first = self.manifest.occurrences[0]
+        self.token = self.first.token
+        other = "z" * 28 if self.manifest.token_namespace != "z" * 28 else "y" * 28
+        self.unknown = make_token("PERSON", other, 7)  # well-formed, and issued by nobody here
+        self.canaries = [NAME_A, EMAIL_A]
+
+    def forged(self, artifact: bytes, registered: bool = True) -> PrivateManifest:
+        """A manifest that vouches for `artifact`, so that the token scan is what judges it.
+
+        It registers the first token at the start of the artifact, or no token at all.
+        """
+        occurrences = ()
+        if registered:
+            occurrences = (
+                dataclasses.replace(
+                    self.first,
+                    original_byte_start=0,
+                    original_byte_end=len(self.first.original_value),
+                    masked_byte_start=0,
+                    masked_byte_end=len(self.token),
+                ),
+            )
+        return dataclasses.replace(self.manifest, occurrences=occurrences, masked_sha256=sha(artifact))
+
+    def assertRefusal(self, error: BaseException | None, code: str) -> None:
+        self.assertIsInstance(error, ReversibleMaskingError, f"expected {code}, got {error!r}")
+        self.assertEqual(error.code, code)
+        self.assertCleanError(error, self.canaries)
+
+    def test_a_text_of_a_million_prefixes_is_refused_with_bounded_memory(self) -> None:
+        text = repeated("[[CB", 4 * MIB)  # a million prefixes, none of them a token
+        self.assertEqual(len(text), 4 * MIB)
+        peak, error = peak_memory(lambda: check_release_text(text, self.manifest))
+        self.assertRefusal(error, "MALFORMED_TOKEN")
+        self.assertLess(peak, 16 * MIB, f"peak {peak / MIB:.0f} MiB")
+
+    def test_a_text_of_the_shipped_size_bound_filled_with_prefixes_is_refused_with_bounded_memory(self) -> None:
+        # The case of the finding itself, at the real limit: nearly 30 million characters, 7.5 million prefixes.
+        limit = rm._masked_size_limit()
+        self.assertEqual(limit, 29_964_400)
+        text = repeated("[[CB", limit)
+        peak, error = peak_memory(lambda: check_release_text(text, self.manifest))
+        self.assertRefusal(error, "MALFORMED_TOKEN")
+        self.assertLess(peak, 16 * MIB, f"peak {peak / MIB:.0f} MiB")
+
+    def test_the_first_malformed_candidate_ends_the_scan(self) -> None:
+        # Malformed beats every other category, so nothing after it needs to be read.
+        text = repeated("[[CB", MIB)
+        with patch.object(rm, "TOKEN_RE", wraps=rm.TOKEN_RE) as token_re:
+            self.assertRejected("MALFORMED_TOKEN", check_release_text, text, self.manifest, canaries=self.canaries)
+        self.assertEqual(token_re.match.call_count, 1)
+        artifact = text.encode("ascii")
+        with patch.object(rm, "TOKEN_RE", wraps=rm.TOKEN_RE) as token_re:
+            self.assertRestoreRejected("MALFORMED_TOKEN", artifact, self.forged(artifact), canaries=self.canaries)
+        self.assertEqual(token_re.match.call_count, 1)
+
+    def test_a_text_at_the_bound_of_one_issued_token_is_scanned_with_bounded_memory(self) -> None:
+        # The limits are lowered so that the largest text the scan accepts is a few MiB, not 29 million characters:
+        # tracemalloc makes every candidate several times dearer. The shipped limit is measured by the probe.
+        with patched_limits(MIB, rm.MAX_OCCURRENCES):
+            limit = rm._masked_size_limit()
+            text = repeated(self.token, limit)
+            self.assertGreater(len(text), limit - len(self.token))
+            self.assertGreater(len(text) // len(self.token), 90_000)  # candidates in the text
+            # The residual scan is linear, takes seconds over this much text, and holds nothing of interest here.
+            with patch.object(rm, "find_residual_sensitive_classes", return_value=[]) as residual:
+                peak, error = peak_memory(lambda: check_release_text(text, self.manifest))
+        self.assertIsNone(error)
+        residual.assert_called_once_with(text)
+        self.assertLess(peak, 2 * MIB, f"peak {peak / MIB:.1f} MiB")
+
+    def test_a_text_at_the_bound_of_one_unissued_token_is_refused_with_bounded_memory(self) -> None:
+        # An unknown token cannot end the scan: a malformed one may still follow. Only a flag is kept for it.
+        with patched_limits(MIB, rm.MAX_OCCURRENCES):
+            text = repeated(self.unknown, rm._masked_size_limit())
+            with patch.object(rm, "find_residual_sensitive_classes", return_value=[]) as residual:
+                peak, error = peak_memory(lambda: check_release_text(text, self.manifest))
+        self.assertRefusal(error, "UNKNOWN_TOKEN")
+        residual.assert_not_called()
+        self.assertLess(peak, 2 * MIB, f"peak {peak / MIB:.1f} MiB")
+
+    def test_restore_keeps_bounded_state_whatever_the_artifact_repeats(self) -> None:
+        cases = {
+            "a million prefixes": (repeated("[[CB", 4 * MIB), "MALFORMED_TOKEN"),
+            "one registered token again and again": (repeated(self.token, 4 * MIB), "DUPLICATE_TOKEN"),
+            "one unissued token again and again": (repeated(self.unknown, 4 * MIB), "UNKNOWN_TOKEN"),
+        }
+        for name, (text, code) in cases.items():
+            with self.subTest(case=name):
+                artifact = text.encode("ascii")
+                manifest = self.forged(artifact)
+                peak, error = peak_memory(lambda: restore_original(artifact, manifest, BINDING_A))
+                self.assertRefusal(error, code)
+                # The decoded text is the one copy of the artifact that restore needs, and nothing else grows.
+                self.assertLess(
+                    peak, len(artifact) + MIB, f"peak {peak / MIB:.1f} MiB for {len(artifact) / MIB:.1f} MiB"
+                )
+
+    def test_a_malformed_candidate_after_a_flood_of_unknown_ones_still_wins_and_costs_no_memory(self) -> None:
+        text = repeated(self.unknown, 2 * MIB) + "[[cb1:"
+        artifact = text.encode("ascii")
+        manifest = self.forged(artifact)
+        peak, error = peak_memory(lambda: check_release_text(text, self.manifest))
+        self.assertRefusal(error, "MALFORMED_TOKEN")
+        self.assertLess(peak, MIB, f"peak {peak / MIB:.1f} MiB")
+        peak, error = peak_memory(lambda: restore_original(artifact, manifest, BINDING_A))
+        self.assertRefusal(error, "MALFORMED_TOKEN")
+        self.assertLess(peak, len(artifact) + MIB, f"peak {peak / MIB:.1f} MiB")
+
+    def test_the_peak_does_not_grow_with_the_number_of_candidates(self) -> None:
+        # Four times the candidates, the same memory: no bound to tune, only the shape of the growth.
+        def release_peak(count: int) -> int:
+            text = self.token * count
+            with patch.object(rm, "find_residual_sensitive_classes", return_value=[]):
+                peak, error = peak_memory(lambda: check_release_text(text, self.manifest))
+            self.assertIsNone(error)
+            return peak
+
+        def restore_peak(count: int) -> int:
+            artifact = (self.token * count).encode("ascii")
+            manifest = self.forged(artifact)
+            peak, error = peak_memory(lambda: restore_original(artifact, manifest, BINDING_A))
+            self.assertRefusal(error, "DUPLICATE_TOKEN")
+            return peak - len(artifact)  # less the decoded text, which is as long as the artifact
+
+        # Allowed to differ by 64 KiB, which is less than two bytes for each of the 30 000 extra candidates.
+        self.assertLess(release_peak(40_000), release_peak(10_000) + 64 * 1024)
+        self.assertLess(restore_peak(40_000), restore_peak(10_000) + 64 * 1024)
+
+    def test_the_candidate_scan_is_a_generator_that_yields_in_text_order(self) -> None:
+        self.assertTrue(inspect.isgeneratorfunction(rm._scan_token_candidates))
+        text = "備註 " + self.token + "[[cb1:" + self.unknown + "[[CB"
+        at_token = len("備註 ")
+        at_fragment = at_token + len(self.token)
+        at_unknown = at_fragment + len("[[cb1:")
+        at_tail = at_unknown + len(self.unknown)
+        candidates = rm._scan_token_candidates(text)
+        self.assertTrue(inspect.isgenerator(candidates))
+        self.assertEqual(
+            list(candidates),
+            [(at_token, self.token), (at_fragment, None), (at_unknown, self.unknown), (at_tail, None)],
+        )
+        self.assertEqual(list(rm._scan_token_candidates("")), [])
+        self.assertEqual(list(rm._scan_token_candidates("[[CB[[CB")), [(0, None), (4, None)])
+
+    def test_the_candidate_scan_reads_only_as_far_as_it_is_asked(self) -> None:
+        text = repeated("[[CB", 4 * MIB)
+        peak, error = peak_memory(lambda: next(rm._scan_token_candidates(text)))
+        self.assertIsNone(error)
+        self.assertLess(peak, MIB, f"peak {peak / MIB:.1f} MiB")
+        with patch.object(rm, "TOKEN_RE", wraps=rm.TOKEN_RE) as token_re:
+            candidates = rm._scan_token_candidates(text)
+            self.assertEqual([next(candidates) for _ in range(3)], [(0, None), (4, None), (8, None)])
+        self.assertEqual(token_re.match.call_count, 3)
+
+    def test_each_character_is_sliced_once_when_the_offsets_of_the_tokens_are_found(self) -> None:
+        # The byte offset of a token is carried forward from the one before it. Encoding the text up to every
+        # token instead would be quadratic: 900 tokens in this 70 KiB artifact would have it read 30 MiB.
+        raw = mixed_lines(300).encode("utf-8")
+        safe, manifest = self.mask(raw)
+        self.assertEqual(len(manifest.occurrences), 900)
+        sliced: list[int] = []
+
+        class Text(str):
+            def __getitem__(self, key):
+                if isinstance(key, slice):
+                    sliced.append(len(range(*key.indices(len(self)))))
+                return str.__getitem__(self, key)
+
+        decode = rm._decode_strict
+        with patch.object(rm, "_decode_strict", side_effect=lambda data: Text(decode(data))):
+            self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+        self.assertLessEqual(sum(sliced), len(safe.masked_text))
+
+    def test_a_malformed_candidate_after_unknown_ones_still_wins_in_both_scans(self) -> None:
+        # Stopping at the first unknown token would be wrong: the category order holds over the whole text.
+        text = self.unknown * 50 + "[[cb1:" + self.unknown * 50
+        self.assertRejected("MALFORMED_TOKEN", check_release_text, text, self.manifest, canaries=self.canaries)
+        artifact = text.encode("ascii")
+        self.assertRestoreRejected("MALFORMED_TOKEN", artifact, self.forged(artifact), canaries=self.canaries)
+        # And only unknown ones, or duplicates of registered ones, give the lower categories.
+        self.assertRejected("UNKNOWN_TOKEN", check_release_text, self.unknown * 50, self.manifest)
+        artifact = (self.token * 50 + self.unknown * 50).encode("ascii")
+        self.assertRestoreRejected("UNKNOWN_TOKEN", artifact, self.forged(artifact), canaries=self.canaries)
+        artifact = (self.unknown + self.token * 50).encode("ascii")
+        self.assertRestoreRejected("UNKNOWN_TOKEN", artifact, self.forged(artifact), canaries=self.canaries)
+        artifact = (self.token * 50).encode("ascii")
+        self.assertRestoreRejected("DUPLICATE_TOKEN", artifact, self.forged(artifact), canaries=self.canaries)
+        artifact = ("x" * 50).encode("ascii")
+        self.assertRestoreRejected("MISSING_TOKEN", artifact, self.forged(artifact), canaries=self.canaries)
+        artifact = ("x" + self.token).encode("ascii")
+        self.assertRestoreRejected("TOKEN_POSITION_MISMATCH", artifact, self.forged(artifact), canaries=self.canaries)
+
+    def test_both_scans_agree_with_the_scan_in_a_list_on_tampered_artifacts_of_every_kind(self) -> None:
+        masked, manifest = self.issue_tamper_doc()
+        text = masked.decode("utf-8")
+        tokens = [occ.token for occ in manifest.occurrences]
+        registered = {occ.token: occ.masked_byte_start for occ in manifest.occurrences}
+        namespace = manifest.token_namespace
+        unknown = [make_token("PERSON", "z" * 28, 9), make_token("EMAIL", namespace, 99)]
+        fragments = ["[[cb1:", "[[CB", "[[CB1:PERSON:short:000001]]", tokens[0][:-2], tokens[1].lower()]
+        fillers = ["x", " ", "\n", "備註", "說明", chr(0x20000), "\N{LATIN SMALL LETTER E WITH ACUTE}"]
+        self.assertNotEqual(namespace, "z" * 28)
+        rng = random.Random(20261004)
+        floor = max(occ.masked_byte_end for occ in manifest.occurrences)
+        outcomes: Counter[str | None] = Counter()
+        for _ in range(500):
+            current = text
+            for _ in range(rng.randint(1, 3)):
+                spans = [(m.start(), m.end()) for m in rm.TOKEN_RE.finditer(current)]
+                kind = rng.choice(["replace", "insert", "swap", "duplicate", "delete"])
+                if kind == "insert" or not spans:
+                    at = rng.randrange(len(current) + 1)
+                    current = current[:at] + rng.choice(tokens + unknown + fragments + fillers) + current[at:]
+                elif kind == "replace":
+                    start, end = rng.choice(spans)
+                    current = current[:start] + rng.choice(tokens + unknown + fragments + fillers) + current[end:]
+                elif kind == "duplicate":
+                    start, end = rng.choice(spans)
+                    current = current[:end] + current[start:end] + current[end:]
+                elif kind == "delete":
+                    start, end = rng.choice(spans)
+                    current = current[:start] + current[end:]
+                elif len(spans) > 1:
+                    (s1, e1), (s2, e2) = sorted(rng.sample(spans, 2))
+                    current = current[:s1] + current[s2:e2] + current[e1:s2] + current[s1:e1] + current[e2:]
+            artifact = current.encode("utf-8")
+            artifact += b"x" * max(0, floor - len(artifact))  # every registered range stays inside the artifact
+            current = artifact.decode("utf-8")
+            expected = reference_token_verdict(current, registered)
+            outcomes[expected] += 1
+            forged = forge_digest(manifest, artifact)
+            if expected is None:
+                try:
+                    restored = restore_original(artifact, forged, BINDING_A)
+                except ReversibleMaskingError as error:
+                    self.assertEqual(error.code, "RESTORE_DIGEST_MISMATCH", current)
+                else:
+                    self.assertEqual(sha(restored), manifest.original_sha256, current)
+            else:
+                self.assertRestoreRejected(expected, artifact, forged, canaries=TAMPER_VALUES)
+            # The release scan knows two of the categories, and judges the rest by what residual_pii finds.
+            if expected in ("MALFORMED_TOKEN", "UNKNOWN_TOKEN"):
+                self.assertRejected(expected, check_release_text, current, manifest, canaries=TAMPER_VALUES)
+            else:
+                try:
+                    check_release_text(current, manifest)
+                except ResidualPiiBlocked:
+                    pass
+        # The draw reaches every category, so that the comparison above says something about each of them.
+        self.assertEqual(
+            set(outcomes),
+            {
+                None,
+                "MALFORMED_TOKEN",
+                "UNKNOWN_TOKEN",
+                "DUPLICATE_TOKEN",
+                "MISSING_TOKEN",
+                "TOKEN_POSITION_MISMATCH",
+            },
+        )
+        self.assertGreaterEqual(min(outcomes.values()), 5, outcomes)
 
 
 CORE_SOURCE_PATH = WORKER_DIR / "reversible_masking.py"

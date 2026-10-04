@@ -410,6 +410,32 @@ and the release scan accepted the manifest. Both now answer `MANIFEST_INVALID` i
 no growth in memory. A 64 MiB string in `detector_class` cost 20 ms (the hash) and an 8 MiB
 integer in an offset 2 to 4 ms; each now costs the 0.1 ms of every other field.
 
+The same question for the content, because a count of matches is no more a size than a count
+of occurrences: what can a text or an artifact make the core keep? Memory that is linear in the
+input is expected (the decoded text, the masked bytes, the rebuild); nothing may grow with the
+number of matches or prefixes beyond a count that is itself bounded.
+
+| Place | What it keeps | Bounded by |
+| --- | --- | --- |
+| token scan, in `check_release_text` and in restore | nothing for a candidate that is judged and gone; one flag for an unknown token, one for a repeated one; in restore, the byte offset of the first appearance of each registered token | the occurrences of the manifest, at most `min(MAX_OCCURRENCES, 999 999)`, however many prefixes the text holds |
+| candidate ranges and the replay in `mask_document` | one range or one piece for each accepted match | the candidate budget, 200 000: a refusal costs about 26 MiB whether the document has 1.9 MiB or 14.3 MiB |
+| spans, tokens and the manifest in `mask_document` | one occurrence each, about 1.4 KB | `MAX_OCCURRENCES`: 49 998 occurrences cost 64 to 71 MiB |
+| decode, masked bytes, rebuild | one copy each | the input; the rebuild is at most `MAX_DOCUMENT_BYTES` |
+| the registry's legacy-marker search | the first match | one match |
+
+The token scan was the one place that did not hold. It collected a tuple for every `[[CB`
+before it judged any of them: a text of N characters can hold N / 4 prefixes and a candidate
+costs about a hundred bytes, so 4 MiB of prefixes made 92 MiB of candidates, and a text of
+the size bound (28.5 MiB) took 744 MiB of resident memory and 5 s to be refused as
+`MALFORMED_TOKEN` (a review finding). Restore did worse for a repeated registered token: it
+also kept a list of offsets for it. The scan is now a generator (see "Release scan" and
+Mode A step 8). The release scan of 4 MiB of prefixes allocates 3 KiB and reads one candidate.
+A text of the size bound made of one issued token, one unissued token or prefixes adds no
+resident memory to the release scan, and restore of a forged pair of that size peaks at 110
+to 120 MiB where it peaked at 226 to 861 MiB. A legitimate pair with the 49 998 occurrences
+the limit allows needs 16.9 MiB to restore (26.7 MiB before) and 6.5 MiB for the release scan
+(11.2 MiB before), which is the text and the structures that are sized by the manifest.
+
 ### `mask_document` order
 
 1. `original` is `bytes`, else `INVALID_INPUT_TYPE` (no `str`, `bytearray` or
@@ -469,6 +495,15 @@ repeat tokens (completeness is Mode A restore's business). `mask_document` runs 
 the masked text, so personal data that only `residual_pii` recognises, such as
 `證件 AB1234567 已附。`, blocks the document instead of being returned as masked.
 
+Steps 1 and 2 are one streamed pass, and nothing about the candidates is collected. The
+candidates, every `[[CB` of the text and what follows it, come from a generator one at a
+time and in text order. The first malformed one raises `MALFORMED_TOKEN` where it is found,
+because that category beats the other two wherever it sits, so nothing after it needs to be
+read. An unknown token only sets a flag, because a malformed one may still follow it, and
+`UNKNOWN_TOKEN` is raised after the last candidate, before step 3. The state is that flag,
+which is why a text of a million prefixes costs the memory of one of ten (see "Limits and the
+candidate budget").
+
 ## Mode A: restore algorithm
 
 Mode A restores the original document in place from an unmodified masked artifact. It
@@ -524,7 +559,12 @@ failure:
    appears more than once), `MISSING_TOKEN` (a registered token does not appear), and
    `TOKEN_POSITION_MISMATCH` (every token appears exactly once but at the wrong byte
    offset, for example two tokens swapped). Token format being legal is not enough: the
-   complete set and every position must match.
+   complete set and every position must match. The scan is streamed like the release scan:
+   a malformed candidate ends it at once, an unknown or a repeated registered token sets a
+   flag, and for each registered token only the byte offset of its first appearance is kept,
+   carried forward from the previous one so that every character is encoded once. What is
+   kept is bounded by the occurrences of the manifest, whatever the text repeats, and the
+   categories are decided after the last candidate in the order above.
 9. Rebuild: copy the masked bytes between registered spans and write each
    `original_value` at its registered span. No `str.replace`, no regex substitution, no
    fuzzy match; a token outside a registered span cannot reach this step.
@@ -673,6 +713,12 @@ A later PR may claim a capability only when the evidence in its row exists.
   There is no normalization view (issue section 4.A.1 allows deferring it); the only
   alignment map is the one of the legacy replay above. A later detection view must map
   back to original byte offsets.
+- The legacy `address` pattern is linear but slow on long unbroken runs of its keywords:
+  measured at about 190 µs per character on a run of `路`. A hostile 25 MiB document can
+  therefore keep `mask_sensitive_text` busy for about half an hour, and `mask_document`,
+  which runs the pattern over the original and in the legacy replay, for about an hour.
+  This is pre-existing in the production masker and not changed here: the fix belongs to
+  `masking.py` (a cheaper pattern, a guard on unbroken runs, or a time budget).
 - Unlabeled `personal_name` is a surname-list heuristic: it can mask ordinary words
   (`NON_NAME_TERMS` trims the common ones) and can miss a name.
 - Over-masking is the failure mode by design: when no label rule matches at the start of
@@ -724,6 +770,7 @@ A later PR may claim a capability only when the evidence in its row exists.
 | Mapping outlives its purpose | RAM only, retention deadline, `discard` |
 | Core is wired into a flow before PR B/C | No-import contract tests; docs call it an experimental core |
 | A crowded or oversized input costs minutes and gigabytes before it is refused | `MAX_OCCURRENCES = 50_000`, a candidate budget, each stage checks the bound it can see; every entry point bounds its input before hashing, decoding, searching or scanning (the masked bound for artifacts and release texts); a `tracemalloc` test on a crowded 3 MiB document; spies on every linear step in an entry-point test |
+| A text of prefixes or of one repeated token makes the token scan hold millions of candidates | The scan is a generator: a malformed candidate ends it, an unknown or repeated one only sets a flag, restore keeps one offset for each registered token; tracemalloc peaks on 4 MiB of prefixes, on a text of the size bound filled with them and on restore with forged pairs, a peak that does not grow with the number of candidates, and a check that each character is sliced once |
 | A tampered manifest field makes validation or the rebuild do work as large as the attacker chose | Nothing is read for its size: counts, lengths and offsets are compared with the limits before any arithmetic, hashing or joining; the rebuilt length is checked from lengths before the first byte is joined (the table in "Limits and the candidate budget"); a test makes every field huge in turn and spies on the hash, the join and every size-dependent operation of `str` and `int` subclasses |
 | A tampered manifest or digest ends in a raw exception instead of a code | One digest comparison that never encodes; the release scan judges the manifest first; every such refusal is tested through `assertRejected` (code only, no chained exception) |
 
@@ -750,9 +797,17 @@ document, with consistent offsets and forged digests, is refused before the join
 final digest (spies on both); the limits are exact and never tighter than a document of
 exactly the limit; and every field of the manifest and of an occurrence is made huge in
 turn, with `str` and `int` subclasses that record each operation whose cost grows with the
-size. The only timing in the suite is a ratio, never a time in seconds: it checks that the
-regex match, the comparison and the ordering which that audit relies on cost a twentieth of
-a linear pass over the same data. All inputs are synthetic and the suite is deterministic:
+size. A scan class proves that token scanning keeps bounded state however many prefixes the
+text holds: tracemalloc peaks on a 4 MiB text of a million prefixes and on a text of the
+shipped size bound filled with them, on texts at a lowered size bound made of one issued or
+one unissued token, and through restore on forged pairs that repeat a prefix, a registered
+token or an unissued one; four times the candidates leave the peak where it was; the first
+malformed candidate ends the scan; the candidate scan is a generator, read only as far as it
+is asked; each character is sliced once when the offsets are found; and both scans give the
+verdict of the scan in a list on 500 seeded tampered artifacts that reach every category.
+The only timing in the suite is a ratio, never a time in seconds: it checks that the regex
+match, the comparison and the ordering which the manifest audit relies on cost a twentieth
+of a linear pass over the same data. All inputs are synthetic and the suite is deterministic:
 it asserts properties of random tokens, never their values, and holds no random-looking hex
 or base64 literal.
 

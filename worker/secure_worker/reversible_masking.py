@@ -30,7 +30,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Callable, Iterable, Mapping, NamedTuple, Sequence
+from typing import Callable, Iterable, Iterator, Mapping, NamedTuple, Sequence
 
 from .masking import NON_NAME_TERMS, PATTERNS, _is_masked_class
 from .residual_pii import ResidualPiiBlocked, find_residual_sensitive_classes
@@ -735,13 +735,17 @@ def mask_document(
     return safe, manifest
 
 
-def _scan_token_candidates(text: str) -> list[tuple[int, str | None]]:
-    """(character index, full-grammar token or None) for every place that could be read as a token."""
-    candidates: list[tuple[int, str | None]] = []
+def _scan_token_candidates(text: str) -> Iterator[tuple[int, str | None]]:
+    """(character index, full-grammar token or None) for every place that could be read as a token.
+
+    One at a time, in text order, and never as a list: a text of N characters can hold N / 4
+    prefixes, and every candidate that is kept costs about a hundred bytes (4 MiB of prefixes made
+    about 100 MiB of candidates). Whoever reads them judges each as it comes and keeps only what
+    its own verdict needs, which is bounded by the manifest and not by the text.
+    """
     for prefix in _TOKEN_PREFIX_RE.finditer(text):
         token = TOKEN_RE.match(text, prefix.start())
-        candidates.append((prefix.start(), token.group(0) if token else None))
-    return candidates
+        yield prefix.start(), token.group(0) if token else None
 
 
 def check_release_text(text: str, manifest: PrivateManifest) -> None:
@@ -764,10 +768,15 @@ def check_release_text(text: str, manifest: PrivateManifest) -> None:
     if not _manifest_shape_is_valid(manifest):
         raise ReversibleMaskingError("MANIFEST_INVALID")
     issued = {occurrence.token for occurrence in manifest.occurrences}
-    candidates = _scan_token_candidates(text)
-    if any(token is None for _, token in candidates):
-        raise ReversibleMaskingError("MALFORMED_TOKEN")
-    if any(token not in issued for _, token in candidates):
+    # Streamed. A malformed candidate beats every other category, so it ends the scan where it is
+    # found; an unknown token only sets a flag, because a malformed one may still follow it.
+    unknown = False
+    for _, token in _scan_token_candidates(text):
+        if token is None:
+            raise ReversibleMaskingError("MALFORMED_TOKEN")
+        if token not in issued:
+            unknown = True
+    if unknown:
         raise ReversibleMaskingError("UNKNOWN_TOKEN")
     # Nothing is skipped: a valid token is inert, and the text around it is still scanned.
     residual = find_residual_sensitive_classes(text)
@@ -925,24 +934,37 @@ def _manifest_is_consistent(manifest: PrivateManifest, masked: bytes) -> bool:
 def _verify_tokens(text: str, manifest: PrivateManifest) -> None:
     """Restore needs the complete set: every registered token exactly once, where it was put.
 
-    Category order is malformed, unknown, duplicate, missing, position, over the whole text.
+    Category order is malformed, unknown, duplicate, missing, position, over the whole text. The
+    text is read once, one candidate at a time. A malformed one ends the scan, since it beats every
+    other category; the rest only set a flag, or record the byte offset of the first appearance of
+    a registered token. That is all that is kept, so the state is bounded by the manifest, whatever
+    the text repeats.
     """
     registered = {occ.token: occ for occ in manifest.occurrences}
-    candidates = _scan_token_candidates(text)
-    if any(token is None for _, token in candidates):
-        raise ReversibleMaskingError("MALFORMED_TOKEN")
-    if any(token not in registered for _, token in candidates):
+    first_byte: dict[str, int] = {}  # registered token -> byte offset of its first appearance
+    unknown = duplicated = False
+    # The character index the byte offset below belongs to. Candidates arrive in text order, so the
+    # offset is carried forward over the gap since the last one: every character is encoded once.
+    cursor = offset = 0
+    for index, token in _scan_token_candidates(text):
+        if token is None:
+            raise ReversibleMaskingError("MALFORMED_TOKEN")
+        if token not in registered:
+            unknown = True
+        elif token in first_byte:
+            duplicated = True
+        else:
+            offset += len(text[cursor:index].encode("utf-8"))
+            cursor = index
+            first_byte[token] = offset
+    if unknown:
         raise ReversibleMaskingError("UNKNOWN_TOKEN")
-    byte_at = _byte_offsets(text, [index for index, _ in candidates])
-    found: dict[str, list[int]] = {}
-    for index, token in candidates:
-        found.setdefault(str(token), []).append(byte_at[index])
-    if any(len(offsets) > 1 for offsets in found.values()):
+    if duplicated:
         raise ReversibleMaskingError("DUPLICATE_TOKEN")
-    if any(token not in found for token in registered):
+    if any(token not in first_byte for token in registered):
         raise ReversibleMaskingError("MISSING_TOKEN")
     # Two tokens swapped are each present once; only the position gives them away.
-    if any(found[token][0] != occ.masked_byte_start for token, occ in registered.items()):
+    if any(first_byte[token] != occ.masked_byte_start for token, occ in registered.items()):
         raise ReversibleMaskingError("TOKEN_POSITION_MISMATCH")
 
 
