@@ -87,6 +87,13 @@ RESTORE_MASKED_ONLY = "masked_only"
 # hex namespace trip the phone and identity patterns of residual_pii, so valid output would
 # fail its own release scan at random (about 3 % of tokens measured).
 TOKEN_RE = re.compile(r"\[\[CB1:([A-Z][A-Z_]{0,31}):([a-z]{28}):([0-9]{6})\]\]")
+# The longest token that the grammar allows: "[[CB1:", a 32-character TYPE, ":", the namespace, ":",
+# the sequence and "]]". An occurrence replaces at least one byte with at most this many, which
+# bounds how far a masked artifact can outgrow its original; see _masked_size_limit.
+_MAX_TYPE_LENGTH = 32
+_MAX_TOKEN_BYTES = (
+    len("[[CB1:") + _MAX_TYPE_LENGTH + 1 + NAMESPACE_LENGTH + 1 + SEQUENCE_DIGITS + len("]]")
+)
 # Binding fields and occurrence/entity ids. Always used with fullmatch: "$" would let a
 # trailing newline through.
 OPAQUE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}")
@@ -551,6 +558,18 @@ def _occurrence_limit() -> int:
     return min(MAX_OCCURRENCES, 10**SEQUENCE_DIGITS - 1)
 
 
+def _masked_size_limit() -> int:
+    """The most bytes a legitimate masked artifact can have, from the limits as they stand now.
+
+    Tokens enlarge the output: a document has at most ``_occurrence_limit()`` occurrences, and each
+    swaps at least one byte for at most ``_MAX_TOKEN_BYTES``. MAX_DOCUMENT_BYTES alone is therefore
+    no bound for an artifact (a full document of short values masks to more), and anything longer
+    than this cannot be the masked form of an accepted document. Every entry point that receives a
+    masked artifact, or a text that is checked against one, applies it before reading a byte.
+    """
+    return MAX_DOCUMENT_BYTES + _occurrence_limit() * (_MAX_TOKEN_BYTES - 1)
+
+
 def _resolve_spans(text: str) -> list[tuple[int, int, str]]:
     """Disjoint value spans as (start, end, detector class), in code points of ``text``.
 
@@ -711,15 +730,20 @@ def _scan_token_candidates(text: str) -> list[tuple[int, str | None]]:
 def check_release_text(text: str, manifest: PrivateManifest) -> None:
     """Outbound / release scan: only tokens issued by this manifest, everything else scanned.
 
-    The manifest is judged first (``MANIFEST_INVALID``), because the tokens come from it. A
-    membership check, not a completeness check: a summary may omit or repeat tokens.
+    The text is bounded first (``DOCUMENT_TOO_LARGE``), then the manifest is judged
+    (``MANIFEST_INVALID``), because the tokens come from it. A membership check, not a completeness
+    check: a summary may omit or repeat tokens.
     """
     if not isinstance(text, str):
         raise ReversibleMaskingError("INVALID_INPUT_TYPE")
     if not isinstance(manifest, PrivateManifest):
         raise ReversibleMaskingError("MANIFEST_INVALID")
-    # The tokens come from the manifest, so the manifest is judged first: a tampered one must end
-    # here with a code, not in a TypeError or in a set of tokens that nobody issued.
+    # Before any other work. Characters are never more than bytes, so this is looser than the bound
+    # on a masked artifact, and safe; mask_document's own call can never trip it.
+    if len(text) > _masked_size_limit():
+        raise ReversibleMaskingError("DOCUMENT_TOO_LARGE")
+    # The tokens come from the manifest, so it is judged before any of them is read: a tampered one
+    # must end here with a code, not in a TypeError or in a set of tokens that nobody issued.
     if not _manifest_shape_is_valid(manifest):
         raise ReversibleMaskingError("MANIFEST_INVALID")
     issued = {occurrence.token for occurrence in manifest.occurrences}
@@ -768,7 +792,7 @@ def _occurrence_is_well_formed(occ: object, namespace: str, sequence: int) -> bo
 
 
 def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
-    """The structure rules of ADR-0003 (Mode A, step 6) that need no masked artifact, as a yes/no.
+    """The structure rules of ADR-0003 (Mode A, step 7) that need no masked artifact, as a yes/no.
 
     Python slicing never raises on a bad range, so every rule is checked explicitly. Answering
     with a bool lets the caller raise outside any except block. The release scan relies on this as
@@ -791,6 +815,9 @@ def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
     ):
         return False
     if not isinstance(manifest.occurrences, tuple):
+        return False
+    # No document has more, so there is no point in reading them one by one to find out.
+    if len(manifest.occurrences) > _occurrence_limit():
         return False
 
     seen_ids: set[str] = set()
@@ -833,7 +860,7 @@ def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
 
 
 def _manifest_is_consistent(manifest: PrivateManifest, masked: bytes) -> bool:
-    """All of step 6: the shape of the manifest, and what only the masked artifact can confirm."""
+    """All of step 7: the shape of the manifest, and what only the masked artifact can confirm."""
     if not _manifest_shape_is_valid(manifest):
         return False
     # The BOM flag is informational, but it must agree with the bytes it describes.
@@ -883,6 +910,9 @@ def restore_original(masked: bytes, manifest: PrivateManifest, binding: Document
         raise ReversibleMaskingError("BINDING_MISMATCH")
     if manifest.restore_policy != RESTORE_ORIGINAL_IN_PLACE:
         raise ReversibleMaskingError("RESTORE_NOT_PERMITTED")
+    # The artifact is bounded before anything reads it: the digest below touches every byte.
+    if len(masked) > _masked_size_limit():
+        raise ReversibleMaskingError("DOCUMENT_TOO_LARGE")
     # Any edit to the masked artifact, even outside a token, ends here: this mode restores an
     # unmodified artifact and never passes a changed document off as the original.
     if not _digest_equal(_sha256(masked), manifest.masked_sha256):
@@ -995,9 +1025,14 @@ class InMemoryManifestRegistry:
             raise ReversibleMaskingError("INVALID_INPUT_TYPE")
         if not isinstance(binding, DocumentBinding):
             raise ReversibleMaskingError("INVALID_BINDING")
+        # Before the lookup and the legacy-marker search, which both read the artifact: an oversized
+        # one is neither unknown nor legacy, it is too large.
+        if len(masked) > _masked_size_limit():
+            raise ReversibleMaskingError("DOCUMENT_TOO_LARGE")
         manifest = None
         with self._lock:
-            if isinstance(manifest_id, str):
+            # Hashing a long string is linear work, and an id that is no opaque id was never issued.
+            if _is_opaque_id(manifest_id):
                 manifest = self._manifests.get(manifest_id)
                 if manifest is not None and self._is_expired(manifest):
                     self._forget(manifest_id)
@@ -1014,5 +1049,5 @@ class InMemoryManifestRegistry:
     def discard(self, manifest_id: str) -> None:
         """Forget a manifest. Idempotent."""
         with self._lock:
-            if isinstance(manifest_id, str):
+            if _is_opaque_id(manifest_id):
                 self._forget(manifest_id)

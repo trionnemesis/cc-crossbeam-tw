@@ -38,7 +38,7 @@ import warnings
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from tw_law_mcp.server import TOOL_SCHEMAS
 from worker.secure_worker import reversible_masking as rm
@@ -2791,6 +2791,307 @@ class OccurrenceBudgetTests(CoreTestCase):
                 tracemalloc.stop()
         replay.assert_not_called()
         self.assertLess(peak, 96 * 1024 * 1024, f"peak {peak / 2**20:.0f} MiB")
+
+
+LONGEST_TOKEN = make_token("A" + "B" * 31, "a" * 28, 999_999)  # the longest token the grammar allows
+
+
+def masked_bound(documents: int, occurrences: int) -> int:
+    """The most a legitimate masked artifact can have: each occurrence swaps one byte for a longest token."""
+    return documents + occurrences * (len(LONGEST_TOKEN) - 1)
+
+
+@contextlib.contextmanager
+def patched_limits(documents: int, occurrences: int):
+    with patch.object(rm, "MAX_DOCUMENT_BYTES", documents), patch.object(rm, "MAX_OCCURRENCES", occurrences):
+        yield
+
+
+class CountingId(str):
+    """A manifest id that counts how often it is hashed: hashing a long string is linear work."""
+
+    hashes = 0
+
+    def __hash__(self) -> int:
+        CountingId.hashes += 1
+        return str.__hash__(self)
+
+
+# Proves #28 §10 PR A item 3d (hardening): every entry point bounds its input before linear work.
+class EntryPointBoundTests(CoreTestCase):
+    BOUNDED = frozenset(
+        {
+            "mask_document",
+            "check_release_text",
+            "restore_original",
+            "InMemoryManifestRegistry.issue",
+            "InMemoryManifestRegistry.restore_original",
+        }
+    )
+    EXEMPT = {
+        "derive_detector_version": "takes the module's own patterns and vocabulary, never a document",
+        "derive_policy_version": "takes the module's own rules, never a document",
+        "InMemoryManifestRegistry.discard": "takes only an id, and an id that is no opaque id is never hashed",
+    }
+
+    def setUp(self) -> None:
+        self.raw = corpus_doc("lf").raw  # a name and an email: two occurrences
+        self.safe, self.manifest = self.mask(self.raw)
+        self.masked = self.safe.masked_bytes
+        self.documents, self.occurrences = len(self.raw), len(self.manifest.occurrences)
+        self.bound = masked_bound(self.documents, self.occurrences)
+
+    def limits(self):
+        return patched_limits(self.documents, self.occurrences)
+
+    def test_the_longest_token_is_what_the_grammar_allows(self) -> None:
+        self.assertEqual(rm._MAX_TOKEN_BYTES, len(LONGEST_TOKEN))
+        self.assertEqual(rm._MAX_TOKEN_BYTES, 76)
+        self.assertIsNotNone(rm.TOKEN_RE.fullmatch(LONGEST_TOKEN))
+        longer = (
+            make_token("A" + "B" * 32, "a" * 28, 1),  # a 33-character type
+            make_token("A", "a" * 29, 1),  # a 29-letter namespace
+            make_token("A", "a" * 28, 1_000_000),  # a seven-digit sequence
+        )
+        for token in longer:
+            with self.subTest(token=token):
+                self.assertIsNone(rm.TOKEN_RE.fullmatch(token))
+        self.assertLess(max(len(entity_type) for entity_type in rm.ENTITY_TYPES.values()), 32)
+
+    def test_the_masked_bound_is_the_document_limit_plus_the_growth_the_occurrences_allow(self) -> None:
+        self.assertEqual(rm._masked_size_limit(), 25 * 1024 * 1024 + 50_000 * 75)
+        self.assertEqual(rm._masked_size_limit(), 29_964_400)
+        with self.limits():
+            self.assertEqual(rm._masked_size_limit(), self.bound)
+        # Read at call time, like the limits it is built from.
+        with patch.object(rm, "MAX_DOCUMENT_BYTES", 10), patch.object(rm, "MAX_OCCURRENCES", 10**9):
+            self.assertEqual(rm._masked_size_limit(), 10 + 999_999 * 75)  # the grammar capacity is the ceiling
+        with (
+            patch.object(rm, "_MAX_TOKEN_BYTES", 11),
+            patch.object(rm, "MAX_DOCUMENT_BYTES", 5),
+            patch.object(rm, "MAX_OCCURRENCES", 3),
+        ):
+            self.assertEqual(rm._masked_size_limit(), 5 + 3 * 10)
+
+    def test_a_masked_artifact_over_the_bound_is_refused_before_it_is_hashed(self) -> None:
+        canaries = [NAME_A, EMAIL_A]
+        with self.limits():
+            with patch.object(rm, "_sha256", wraps=rm._sha256) as hashing:
+                self.assertRestoreRejected(
+                    "DOCUMENT_TOO_LARGE", b"x" * (self.bound + 1), self.manifest, canaries=canaries
+                )
+            hashing.assert_not_called()
+            # At exactly the bound the artifact is looked at: the digest is the first thing that says no.
+            with patch.object(rm, "_sha256", wraps=rm._sha256) as hashing:
+                self.assertRestoreRejected(
+                    "MASKED_DIGEST_MISMATCH", b"x" * self.bound, self.manifest, canaries=canaries
+                )
+            hashing.assert_called_once()
+
+    def test_the_size_check_comes_after_the_cheap_checks_and_before_the_digest(self) -> None:
+        masked_only = dataclasses.replace(self.manifest, restore_policy="masked_only")
+        with self.limits():
+            oversized = b"x" * (self.bound + 1)
+            self.assertRejected(
+                "INVALID_INPUT_TYPE", restore_original, "x" * (self.bound + 1), self.manifest, BINDING_A
+            )
+            self.assertRejected("MANIFEST_INVALID", restore_original, oversized, "manifest", BINDING_A)
+            self.assertRejected("INVALID_BINDING", restore_original, oversized, self.manifest, "binding")
+            self.assertRestoreRejected("BINDING_MISMATCH", oversized, self.manifest, binding=BINDING_B)
+            self.assertRestoreRejected("RESTORE_NOT_PERMITTED", oversized, masked_only)
+            self.assertRestoreRejected("BINDING_MISMATCH", oversized, masked_only, binding=BINDING_B)
+            self.assertRestoreRejected("DOCUMENT_TOO_LARGE", oversized, self.manifest)
+
+    def test_the_bound_is_never_tighter_than_a_legitimate_artifact(self) -> None:
+        for doc in CORPUS:
+            with self.subTest(doc=doc.name):
+                _, manifest = self.mask(doc.raw)
+                documents, occurrences = len(doc.raw), max(1, len(manifest.occurrences))
+                with patched_limits(documents, occurrences):
+                    safe, manifest = self.mask(doc.raw)
+                    self.assertLessEqual(len(safe.masked_bytes), masked_bound(documents, occurrences))
+                    self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), doc.raw)
+                    self.assertIsNone(check_release_text(safe.masked_text, manifest))
+                    registry = InMemoryManifestRegistry()
+                    issued = registry.issue(doc.raw, BINDING_A)
+                    restored = registry.restore_original(
+                        issued.masked_bytes, manifest_id=issued.manifest_id, binding=BINDING_A
+                    )
+                    self.assertEqual(restored, doc.raw)
+
+    def test_the_most_expanding_real_values_fit_with_room_to_spare(self) -> None:
+        # The longest real type, here stretched to the longest the grammar allows, on the shortest real value.
+        raw = ("案件編號12345\n" * 40).encode("utf-8")
+        entity_types = {**rm.ENTITY_TYPES, "bank_or_case_id": "A" + "B" * 31}
+        with patch.object(rm, "ENTITY_TYPES", entity_types), patched_limits(len(raw), 40):
+            safe, manifest = self.mask(raw)
+            self.assertEqual(len(manifest.occurrences), 40)
+            self.assertEqual(manifest.occurrences[0].original_value.reveal(), b"12345")
+            self.assertEqual(len(manifest.occurrences[0].token), len(LONGEST_TOKEN))
+            self.assertLess(len(safe.masked_bytes), masked_bound(len(raw), 40))
+            self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+
+    def test_the_bound_is_exactly_the_most_a_legal_artifact_can_grow(self) -> None:
+        # One byte per occurrence, each becoming the longest token: a document at both limits, at the bound.
+        size = 64
+        raw = b"Q" * size
+        patterns = (("synthetic", re.compile("Q")),)
+        with (
+            patch.object(rm, "PATTERNS", patterns),
+            patch.object(rm, "ENTITY_TYPES", {"synthetic": "A" + "B" * 31}),
+            patched_limits(size, size),
+        ):
+            safe, manifest = self.mask(raw)  # mask_document's own release scan runs here, and does not trip
+            self.assertEqual(len(manifest.occurrences), size)
+            self.assertEqual(len(safe.masked_bytes), masked_bound(size, size))
+            self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), raw)
+            self.assertIsNone(check_release_text(safe.masked_text, manifest))
+            self.assertRestoreRejected("DOCUMENT_TOO_LARGE", safe.masked_bytes + b"x", manifest)
+
+    def test_the_registry_bounds_a_masked_artifact_before_it_looks_anything_up(self) -> None:
+        registry = InMemoryManifestRegistry()
+        issued = registry.issue(self.raw, BINDING_A)
+        legacy_marker = MagicMock(wraps=rm._LEGACY_MARKER_RE)
+        with self.limits():
+            oversized = b"[MASKED_EMAIL]" + b"x" * self.bound  # a legacy marker, and one byte too many
+            with (
+                patch.object(rm, "_LEGACY_MARKER_RE", legacy_marker),
+                patch.object(rm, "_sha256", wraps=rm._sha256) as hashing,
+            ):
+                for manifest_id in ("no-such-id", None, issued.manifest_id, 5):
+                    with self.subTest(manifest_id=manifest_id):
+                        self.assertRejected(
+                            "DOCUMENT_TOO_LARGE",
+                            registry.restore_original,
+                            oversized,
+                            manifest_id=manifest_id,
+                            binding=BINDING_A,
+                        )
+            legacy_marker.search.assert_not_called()
+            hashing.assert_not_called()
+            # Under the bound nothing changes: a legacy artifact is still named as one, an unknown id as unknown.
+            artifact = (b"[MASKED_EMAIL]" + b"x" * self.bound)[: self.bound]
+            self.assertRejected(
+                "LEGACY_MAPPING_UNAVAILABLE", registry.restore_original, artifact, manifest_id=None, binding=BINDING_A
+            )
+            self.assertRejected(
+                "MAPPING_UNAVAILABLE",
+                registry.restore_original,
+                b"x" * self.bound,
+                manifest_id="no-such-id",
+                binding=BINDING_A,
+            )
+            self.assertRejected(
+                "DOCUMENT_TOO_LARGE", registry.restore_original, oversized, manifest_id="no-such-id", binding=BINDING_A
+            )
+        self.assertEqual(
+            registry.restore_original(issued.masked_bytes, manifest_id=issued.manifest_id, binding=BINDING_A), self.raw
+        )
+
+    def test_the_release_scan_bounds_the_text_before_it_judges_the_manifest(self) -> None:
+        tampered = dataclasses.replace(self.manifest, occurrences=None)
+        with self.limits():
+            self.assertRejected("DOCUMENT_TOO_LARGE", check_release_text, "x" * (self.bound + 1), tampered)
+            # At the bound the manifest is judged, and a good one scans normally.
+            self.assertRejected("MANIFEST_INVALID", check_release_text, "x" * self.bound, tampered)
+            self.assertIsNone(check_release_text("x" * self.bound, self.manifest))
+            # The bound counts characters, which are never more than bytes: so it is looser, and safe.
+            han = "說" * self.bound
+            self.assertGreater(len(han.encode("utf-8")), self.bound)
+            self.assertIsNone(check_release_text(han, self.manifest))
+            self.assertRejected("DOCUMENT_TOO_LARGE", check_release_text, han + "說", self.manifest)
+
+    def test_a_manifest_id_that_cannot_exist_is_never_hashed(self) -> None:
+        registry = InMemoryManifestRegistry()
+        issued = registry.issue(self.raw, BINDING_A)
+        CountingId.hashes = 0
+        for text in ("a" * 129, "a" * 100_000, "a b", "", "\N{LATIN SMALL LETTER E WITH ACUTE}" * 10):
+            with self.subTest(length=len(text)):
+                identifier = CountingId(text)
+                self.assertRejected(
+                    "MAPPING_UNAVAILABLE",
+                    registry.restore_original,
+                    self.masked,
+                    manifest_id=identifier,
+                    binding=BINDING_A,
+                )
+                registry.discard(identifier)
+        self.assertEqual(CountingId.hashes, 0)
+        # A real id is an opaque id and works as before.
+        self.assertEqual(
+            registry.restore_original(issued.masked_bytes, manifest_id=issued.manifest_id, binding=BINDING_A), self.raw
+        )
+        registry.discard(issued.manifest_id)
+        self.assertRejected(
+            "MAPPING_UNAVAILABLE",
+            registry.restore_original,
+            issued.masked_bytes,
+            manifest_id=issued.manifest_id,
+            binding=BINDING_A,
+        )
+
+    def test_a_manifest_with_more_occurrences_than_the_limit_is_refused_without_looking_at_them(self) -> None:
+        crowded = dataclasses.replace(self.manifest, occurrences=self.manifest.occurrences * 3)
+        with (
+            self.limits(),
+            patch.object(rm, "_occurrence_is_well_formed", wraps=rm._occurrence_is_well_formed) as looked,
+        ):
+            self.assertRejected("MANIFEST_INVALID", check_release_text, "text", crowded)
+            self.assertRestoreRejected("MANIFEST_INVALID", self.masked, crowded)
+            looked.assert_not_called()
+            # At exactly the limit the occurrences are looked at, and the manifest is good.
+            self.assertIsNone(check_release_text("text", self.manifest))
+            self.assertEqual(looked.call_count, self.occurrences)
+            self.assertEqual(restore_original(self.masked, self.manifest, BINDING_A), self.raw)
+
+    def test_every_entry_point_refuses_oversized_input_before_any_linear_work(self) -> None:
+        registry = InMemoryManifestRegistry()
+        issued = registry.issue(self.raw, BINDING_A)
+        with self.limits():
+            original, masked, text = b"x" * (self.documents + 1), b"x" * (self.bound + 1), "x" * (self.bound + 1)
+            entry_points = {
+                "mask_document": lambda: mask_document(original, BINDING_A),
+                "InMemoryManifestRegistry.issue": lambda: InMemoryManifestRegistry().issue(original, BINDING_A),
+                "restore_original": lambda: restore_original(masked, self.manifest, BINDING_A),
+                "registry restore, live id": lambda: registry.restore_original(
+                    masked, manifest_id=issued.manifest_id, binding=BINDING_A
+                ),
+                "registry restore, unknown id": lambda: registry.restore_original(
+                    masked, manifest_id="no-such-id", binding=BINDING_A
+                ),
+                "registry restore, no id": lambda: registry.restore_original(
+                    masked, manifest_id=None, binding=BINDING_A
+                ),
+                "check_release_text": lambda: check_release_text(text, self.manifest),
+            }
+            linear = (
+                "_sha256",
+                "_decode_strict",
+                "_scan_token_candidates",
+                "_resolve_spans",
+                "_manifest_shape_is_valid",
+                "find_residual_sensitive_classes",
+            )
+            for label, call in entry_points.items():
+                with self.subTest(entry_point=label), contextlib.ExitStack() as stack:
+                    spies = {
+                        name: stack.enter_context(patch.object(rm, name, wraps=getattr(rm, name))) for name in linear
+                    }
+                    legacy_marker = MagicMock(wraps=rm._LEGACY_MARKER_RE)
+                    stack.enter_context(patch.object(rm, "_LEGACY_MARKER_RE", legacy_marker))
+                    self.assertRejected("DOCUMENT_TOO_LARGE", call)
+                    for name, spy in spies.items():
+                        self.assertEqual(spy.call_count, 0, f"{label} reached {name}")
+                    legacy_marker.search.assert_not_called()
+
+    def test_every_public_entry_point_is_bounded_or_exempt_for_a_stated_reason(self) -> None:
+        public = {name for name in rm.__all__ if inspect.isfunction(getattr(rm, name))}
+        for name, _ in inspect.getmembers(rm.InMemoryManifestRegistry, inspect.isfunction):
+            if not name.startswith("_"):
+                public.add(f"InMemoryManifestRegistry.{name}")
+        # A new public function or method must be put in one of the two sets, with a reason if exempt.
+        self.assertEqual(public, self.BOUNDED | set(self.EXEMPT))
+        self.assertTrue(all(reason for reason in self.EXEMPT.values()))
 
 
 CORE_SOURCE_PATH = WORKER_DIR / "reversible_masking.py"
