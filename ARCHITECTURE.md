@@ -159,6 +159,29 @@ sees it. This is also what makes the `data_governance` gate's
 `pii_detection_status` an observation rather than an assertion — by the time the
 gate reads it, detection has actually run and found nothing.
 
+#### Reversible masking core (experimental, issue #28 PR A)
+
+`worker/secure_worker/reversible_masking.py` (`cb.mask.v1`) is a separate, opt-in module
+that masks one UTF-8 TXT document into per-occurrence tokens
+(`[[CB1:<TYPE>:<namespace>:<seq>]]`) and restores the original byte for byte from a
+private manifest, or refuses. It is **not on the upload path**: `process_upload` still
+calls `mask_sensitive_text`, and nothing outside the tests imports the module. It has no
+endpoint, MCP tool, model path or persistence; the manifest lives in process memory.
+
+Release scanning treats tokens narrowly. `check_release_text` accepts only tokens that
+the manifest at hand issued: any `[[CB` (in any case) that does not start a full-grammar
+token, or whose token this manifest did not issue, is refused (`MALFORMED_TOKEN`,
+`UNKNOWN_TOKEN`), and everything else, including the text around a valid token, still
+goes through `residual_pii`. A document that already contains `[[CB` is refused on
+input, so a look-alike can never be taken for a system token. Namespaces are random
+letters because hex digits trip the residual phone and identity patterns.
+
+Restore is byte-exact and fails closed on tampered, missing, duplicated, swapped or
+foreign tokens, a wrong case/document/version, and digest or offset errors. The check
+order, the error codes and what is deferred (template-slot restore, persistence, privacy
+release, authorized export: issue #28 PR B/C) are in
+[ADR-0003](docs/ADR-0003-reversible-masking.md).
+
 ### Case
 
 `draft -> awaiting_upload -> processing -> awaiting_review -> completed | failed -> deleted`
@@ -178,6 +201,7 @@ requires explicit unlink or an administrator-reviewed recovery flow.
 | Class | Examples | Allowed storage | Model allowed |
 | --- | --- | --- | --- |
 | Raw restricted | drawings, letters, addresses, title blocks | Quarantine only | No |
+| Raw restricted: private manifest | original value bytes, positions and the token-to-value mapping of the reversible masking core | Process memory only in PR A (never persisted); an encrypted vault is required from PR B | Never |
 | Sanitized confidential | masked OCR, atomic correction items | Sanitized store | Minimum necessary fields only |
 | Derived audit | gate status, source IDs, workflow state | Database/audit | No raw spans |
 | Public/reference | law corpus, source policies | `tw_law_mcp` data | Yes when needed |

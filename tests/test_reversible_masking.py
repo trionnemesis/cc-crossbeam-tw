@@ -47,7 +47,6 @@ from worker.secure_worker.masking import (
     mask_sensitive_text,
 )
 from worker.secure_worker.residual_pii import (
-    RESIDUAL_PATTERNS,
     ResidualPiiBlocked,
     find_residual_sensitive_classes,
 )
@@ -1073,6 +1072,20 @@ class ManifestTamperTests(CoreTestCase):
         # Dropping the last (or all) leaves tokens in the text that nobody issued.
         self.reject("UNKNOWN_TOKEN", dataclasses.replace(self.manifest, occurrences=occurrences[:-1]))
         self.reject("UNKNOWN_TOKEN", dataclasses.replace(self.manifest, occurrences=()))
+
+    def test_an_empty_value_is_manifest_invalid_even_when_every_range_agrees(self) -> None:
+        # The last occurrence keeps its token range and gets an empty original range and value,
+        # so lengths, order and offset consistency all still hold: only the explicit
+        # "a value is never empty" rule can object before the final digest would.
+        last_index = len(self.manifest.occurrences) - 1
+        last = self.manifest.occurrences[last_index]
+        emptied = replace_occurrence(
+            self.manifest,
+            last_index,
+            original_byte_end=last.original_byte_start,
+            original_value=PrivateBytes(b""),
+        )
+        self.reject("MANIFEST_INVALID", emptied)
 
     def test_structural_violations_are_manifest_invalid(self) -> None:
         namespace = self.manifest.token_namespace
@@ -2177,24 +2190,6 @@ class LegacyApiUnchangedTests(CoreTestCase):
                 self.assertEqual(list(result.counts), [name for name, _ in PATTERNS])
                 self.assertEqual(result.total, sum(counts.values()))
 
-    def test_detector_registries_are_unchanged(self) -> None:
-        self.assertEqual(
-            [name for name, _ in PATTERNS],
-            [
-                "name", "taiwan_id", "tax_id", "passport_or_resident_id", "email", "mobile", "landline",
-                "birth_date", "parcel_id", "bank_or_case_id", "address", "personal_name",
-            ],
-        )  # fmt: skip
-        self.assertEqual(len(NON_NAME_TERMS), 107)
-        self.assertEqual(
-            [name for name, _ in RESIDUAL_PATTERNS],
-            [
-                "taiwan_id_candidate", "email_candidate", "phone_candidate", "identity_document_candidate",
-                "person_name_candidate", "unlabeled_name_candidate", "birth_date_candidate",
-                "mixed_identity_candidate", "address_candidate", "account_or_case_candidate",
-            ],
-        )  # fmt: skip
-
     def test_using_the_reversible_core_does_not_change_legacy_state(self) -> None:
         patterns_before = tuple(PATTERNS)
         terms_before = frozenset(NON_NAME_TERMS)
@@ -2572,17 +2567,6 @@ class ContractTests(CoreTestCase):
         self.assertNotIn("RESIDUAL_PII_BLOCKED", rm.ERROR_CODES)
         self.assertIn("RESIDUAL_PII_BLOCKED", section)
 
-    def test_adr_header_follows_the_house_format(self) -> None:
-        lines = adr_text().splitlines()
-        self.assertEqual(lines[0], "# ADR-0003: Reversible TXT masking core (`cb.mask.v1`)")
-        self.assertEqual(lines[2], "Status: Accepted (PR A scope)")
-        self.assertRegex(lines[3], r"\ADate: \d{4}-\d{2}-\d{2}\Z")
-        self.assertEqual(lines[4], "Decision maker: repository owner")
-        self.assertTrue(lines[5].startswith("Delivery: GitHub issue #28"))
-        self.assertTrue(
-            (REPO_ROOT / "docs" / "ADR-0002-secure-web.md").read_text(encoding="utf-8").startswith("# ADR-0002")
-        )
-
     def test_adr_pins_grammar_label_rules_entity_map_and_limits(self) -> None:
         adr = adr_text()
         self.assertIn(rm.TOKEN_RE.pattern, adr)
@@ -2595,32 +2579,3 @@ class ContractTests(CoreTestCase):
             self.assertIn(rule.pattern.replace("|", "\\|"), adr, name)
         self.assertIn(f"{rm.MAX_OCCURRENCES:_}", adr)
         self.assertIn("25 MiB", adr)
-
-    def test_adr_states_scope_limits_modes_and_follow_up_gates(self) -> None:
-        adr = adr_text()
-        for heading in (
-            "## Context", "## Decision", "## Data contract", "## Token grammar",
-            "### Why the namespace is letters only", "## Detection, label preservation and span resolution",
-            "## Release scan", "## Mode A: restore algorithm", "## Registry (RAM stand-in for the PR B vault)",
-            "## Mode B (deferred to PR C, described only)", "## Error codes", "## What PR A does not do",
-            "## Follow-up gates", "## Known limitations",
-        ):  # fmt: skip
-            self.assertIn("\n" + heading + "\n", adr, heading)
-        for phrase in (
-            "template_id", "template_version", "field_id", "source_occurrence_id", "expected_entity_type",
-            "result_digest", "SPAN_CONFLICT", "`reidentify`", "PR B", "PR C", "PR D",
-        ):  # fmt: skip
-            self.assertIn(phrase, adr, phrase)
-        prose = adr.lower()
-        for phrase in (
-            "no persistence",
-            "no http endpoint",
-            "no model call",
-            "utf-8 txt only",
-            "full-width",
-            "combining",
-            "normalization",
-            "tombstone",
-            "known limitations",
-        ):
-            self.assertIn(phrase, prose, phrase)

@@ -126,6 +126,8 @@ GitHub Pages 是靜態文件站，不是實際部署的 Secure Web instance。
 | **不確定性** | 缺證據、未知生效日、inactive/pending/ambiguous source、低信心、專業判斷與 unsupported claim 一律 fail closed。 |
 | **Production** | 未具 approved adapters／credentials 前，cloud mode 拒絕 local auth/storage/DB/in-process jobs/local Codex provider。 |
 
+[`worker/secure_worker/reversible_masking.py`](./worker/secure_worker/reversible_masking.py) 是 experimental、opt-in 的可逆遮蔽核心（`cb.mask.v1`，issue #28 PR A）：把 UTF-8 TXT 遮蔽成每次出現各自唯一的 token，並依 private manifest 逐 byte 還原原文；token 遺失、重複、互換、來源不明，case/document/version 不符，或 digest、offset 異常時一律拒絕（fail closed）。manifest 只存在 process memory，上傳流程沒有呼叫這個核心，也沒有 endpoint、持久化或 model path；實際上傳仍使用不可逆的 `[MASKED_<CLASS>]` 遮蔽。規格見 [ADR-0003](./docs/ADR-0003-reversible-masking.md)。privacy release 與加密 vault（PR B）、授權還原／匯出（PR C）、PDF adapter（PR D）尚未完成。
+
 這個原型不會判定案件合法／違法／違建，不會出具法律意見、合規保證、專業簽證或主管機關必然核准的承諾，也不會自行驗證材料真偽或消防設計結論。
 
 ## 安裝

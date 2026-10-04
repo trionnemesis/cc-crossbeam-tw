@@ -37,7 +37,8 @@ changed.
 Add `worker/secure_worker/reversible_masking.py` (standard library only, Python 3.10 to
 3.14). It exposes `mask_document`, `check_release_text`, `restore_original` (Mode A) and
 `InMemoryManifestRegistry`, plus the safe and private record types in the next section.
-It is not exported from `worker/secure_worker/__init__.py` and nothing imports it.
+It is not exported from `worker/secure_worker/__init__.py` and no production module
+imports it.
 
 Design rules that every later PR inherits:
 
@@ -83,15 +84,17 @@ Illustration (the namespace is random per manifest):
   It carries no binding, manifest id, digest or offset.
 - `PrivateBytes(data)` copies a bytes-like argument (`bytes`, `bytearray`, `memoryview`)
   into immutable `bytes` and rejects anything else with `TypeError`. `reveal()` returns
-  those `bytes`; `len()` is the byte length. `repr` and `str` are redacted (a length is
-  allowed, the value is not). `bytes()`, `iter()` and indexing raise `TypeError`.
+  those `bytes`; `len()` is the byte length. `repr` and `str` are fully redacted, without
+  even the length, which in a log line already narrows down a short value. `bytes()`,
+  `iter()` and indexing raise `TypeError`.
   `__reduce__` raises `TypeError`, which blocks `pickle` and `copy.copy` of the object
   itself, and `pickle`, `copy.deepcopy` and `dataclasses.asdict` of any record that
   contains one.
-- `Occurrence` and `PrivateManifest` have a redacted `repr`/`str` (manifest id, schema
-  version and occurrence count only; never digests, namespace, tokens or values).
-  `PrivateManifest.__reduce__` raises `TypeError`. It stays a frozen dataclass so that
-  `dataclasses.replace` works for tamper tests.
+- `PrivateManifest` and `Occurrence` have a redacted `repr`/`str`: the manifest shows only
+  its id, schema version and occurrence count, an occurrence only its id and entity type;
+  neither shows digests, namespace, tokens, offsets or values. `PrivateManifest.__reduce__`
+  raises `TypeError`. Both stay frozen dataclasses so that `dataclasses.replace` works for
+  tamper tests.
 - `occurrence_id` and `entity_id` are opaque ids (same character rule as binding ids),
   random, unique across manifests with overwhelming probability, never derived from a
   value. `entity_id` is unique per occurrence in PR A: the same literal does not mean
@@ -151,7 +154,9 @@ Illustration (the namespace is random per manifest):
   binding. The same document masked twice, or under two bindings, gets unrelated
   namespaces.
 - `<SEQ>` is the 1-based ordinal in original-document order, six digits, unique per
-  manifest. `MAX_OCCURRENCES = 999_999`; more is `TOO_MANY_OCCURRENCES`.
+  manifest. `MAX_OCCURRENCES = 999_999`; more is `TOO_MANY_OCCURRENCES`. The limit is
+  also capped at the capacity of six digits, so raising the constant cannot produce a
+  token that does not match the grammar.
 - No part of a token, id or namespace is derived from a value: no value, no base64 or
   hex of it, no hash of it.
 - Reserved prefix: if the original contains `[[CB`, compared case-insensitively
@@ -166,10 +171,9 @@ Illustration (the namespace is random per manifest):
 The release scan runs the independent `residual_pii` detector over the whole text and
 skips nothing, so every token must be inert under both `masking.PATTERNS` and
 `residual_pii.RESIDUAL_PATTERNS`. A hex namespace is not: digit runs inside it trip the
-phone and identity-document patterns. Measured on `main@4aabfe9`, 597 of 20 000 random
-tokens with 32-hex namespaces were flagged in the orchestrator's run and 640 of 20 000
-in a second run with another seed (about 3 %); 0 of 20 000 tokens with 28-letter
-namespaces were flagged in either run. With hex, release scanning would fail at random
+phone and identity-document patterns. In two seeded runs on `main@4aabfe9`, 597 and 640
+of 20 000 random tokens with 32-hex namespaces were flagged (about 3 %), against 0 of
+20 000 tokens with 28-letter namespaces. With hex, release scanning would fail at random
 on valid output. The namespace is therefore letters only, the sequence is six digits
 (too few for any digit-based pattern), and a property test asserts inertness for at
 least 2 000 generated tokens covering every `<TYPE>`, alone and joined.
