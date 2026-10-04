@@ -116,6 +116,9 @@ ENTITY_TYPES: Mapping[str, str] = MappingProxyType(
         "address": "ADDRESS",
     }
 )
+# Looking a detector class up in ENTITY_TYPES hashes the whole name, so a manifest that names one
+# longer than any real class is refused before the lookup; see _occurrence_is_well_formed.
+_MAX_CLASS_NAME_LENGTH = max(len(name) for name in ENTITY_TYPES)
 
 # Several detectors match a field label together with its value ("申請人：王大明"). The label
 # is what the correction rules read, so it stays and only the value is masked. A rule is
@@ -410,11 +413,25 @@ def _decode_strict(data: bytes) -> str | None:
         return None
 
 
+def _is_finite_number(value: int | float) -> bool:
+    # math.isfinite turns an int into a float first, and an int beyond the float range raises
+    # OverflowError instead of answering. No clock reaches such a deadline, so it is not finite
+    # for this purpose. The caller raises, outside this except block.
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def _check_retention_deadline(value: object) -> None:
     # NaN compares false with everything, so a NaN deadline would never expire.
     if value is None:
         return
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not _is_finite_number(value)
+    ):
         raise ReversibleMaskingError("INVALID_RETENTION_DEADLINE")
 
 
@@ -776,6 +793,9 @@ def _occurrence_is_well_formed(occ: object, namespace: str, sequence: int) -> bo
         return False
     if not isinstance(occ.detector_class, str) or not isinstance(occ.token, str):
         return False
+    # The lookup hashes the whole name, however long it is.
+    if len(occ.detector_class) > _MAX_CLASS_NAME_LENGTH:
+        return False
     entity_type = ENTITY_TYPES.get(occ.detector_class)
     parts = TOKEN_RE.fullmatch(occ.token)
     return (
@@ -791,6 +811,23 @@ def _occurrence_is_well_formed(occ: object, namespace: str, sequence: int) -> bo
     )
 
 
+def _offsets_are_bounded(occ: Occurrence, original_limit: int, masked_limit: int) -> bool:
+    """Every offset lies inside the limits, judged by comparing with the limits and nothing else.
+
+    Ordering an int against a small constant is settled on its size, whereas subtracting or
+    comparing two ints reads every digit of both. This therefore runs before any arithmetic on the
+    offsets, so a manifest cannot make validation cost more than the limits allow, however large
+    the numbers it claims. Original offsets are positions in a document, masked ones positions in
+    an artifact.
+    """
+    return (
+        0 <= occ.original_byte_start <= original_limit
+        and 0 <= occ.original_byte_end <= original_limit
+        and 0 <= occ.masked_byte_start <= masked_limit
+        and 0 <= occ.masked_byte_end <= masked_limit
+    )
+
+
 def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
     """The structure rules of ADR-0003 (Mode A, step 7) that need no masked artifact, as a yes/no.
 
@@ -798,6 +835,11 @@ def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
     with a bool lets the caller raise outside any except block. The release scan relies on this as
     well: it reads the manifest's tokens, so it must not believe a manifest that mask_document
     could not have made.
+
+    Nothing in here may cost more than the manifest is allowed to be. The occurrences are counted
+    before they are read, a detector class is measured before it is hashed, and the offsets are
+    compared with the limits before any arithmetic. The ranges cannot overlap, so the original
+    values together are no longer than the last original offset: at most MAX_DOCUMENT_BYTES.
     """
     if manifest.schema_version != SCHEMA_VERSION:
         return False
@@ -820,6 +862,8 @@ def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
     if len(manifest.occurrences) > _occurrence_limit():
         return False
 
+    # Read once, at call time, like every other limit.
+    original_limit, masked_limit = MAX_DOCUMENT_BYTES, _masked_size_limit()
     seen_ids: set[str] = set()
     seen_entities: set[str] = set()
     seen_tokens: set[str] = set()
@@ -827,6 +871,8 @@ def _manifest_shape_is_valid(manifest: PrivateManifest) -> bool:
     shift = 0  # masked offset minus original offset, from every earlier token
     for sequence, occ in enumerate(manifest.occurrences, start=1):
         if not _occurrence_is_well_formed(occ, manifest.token_namespace, sequence):
+            return False
+        if not _offsets_are_bounded(occ, original_limit, masked_limit):
             return False
         if (
             occ.occurrence_id in seen_ids
@@ -866,7 +912,14 @@ def _manifest_is_consistent(manifest: PrivateManifest, masked: bytes) -> bool:
     # The BOM flag is informational, but it must agree with the bytes it describes.
     if manifest.bom != masked.startswith(_BOM):
         return False
-    return all(occ.masked_byte_end <= len(masked) for occ in manifest.occurrences)
+    if not all(occ.masked_byte_end <= len(masked) for occ in manifest.occurrences):
+        return False
+    # The original that the rebuild would put together is the artifact with every token swapped for
+    # its value. A document is never longer than MAX_DOCUMENT_BYTES, so neither is what is rebuilt
+    # from a genuine pair, and a manifest that says otherwise is refused before a byte is joined or
+    # hashed. Worked out from lengths alone, so it costs one pass over the occurrences.
+    growth = sum(len(occ.token) - len(occ.original_value) for occ in manifest.occurrences)
+    return len(masked) - growth <= MAX_DOCUMENT_BYTES
 
 
 def _verify_tokens(text: str, manifest: PrivateManifest) -> None:

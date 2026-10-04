@@ -370,6 +370,46 @@ memory beyond the input, where restore hashed all of it (194 ms), the registry s
 for a legacy marker (136 ms) or hashed a 200 MiB id (132 ms), and the release scan ran the
 residual detector over all of it (70 s).
 
+A manifest is bounded field by field. A count is not a size, and an entry point is not
+the only place where a size can hide: a tampered manifest is made of fields that an
+attacker chose. The checks above counted the occurrences and nothing else, so a manifest
+with one occurrence whose `original_value` was hundreds of megabytes, with consistent
+offsets and both digests forged to pass, was accepted, and `restore_original` joined and
+hashed the value (a review finding). The rule that closes the class: nothing a manifest
+says may make validation or the rebuild cost more than the limits allow, and every check
+that refuses it runs before the work that would grow with the field. Each field that
+`restore_original` or `check_release_text` can touch was audited by making it huge, one at
+a time (a 64 MiB string, an integer of several MiB, a tuple of three million elements, a
+64 MiB value), and this is what bounds it:
+
+| Field (of the manifest, then of an occurrence) | Bounded by | Where |
+| --- | --- | --- |
+| `schema_version`, `encoding`, `newline_policy`, `restore_policy`, `segment_id`, `entity_type` | compared with a short constant; a string comparison is decided on the length, so a huge string costs nothing | Mode A steps 3 and 7 |
+| `bom` | must be a `bool` | step 7 |
+| `token_namespace`, `original_sha256`, `masked_sha256` | `fullmatch` of a fixed-width pattern (28 letters, 64 hex digits), which stops at the first character too many | steps 5, 7 and 10 |
+| `binding` | compared with the caller's binding, whose fields are opaque ids of at most 128 characters; a longer one is unequal on its length | step 2 |
+| `manifest_id`, `parser_version`, `policy_version`, `detector_version`, `key_id`, `retention_deadline` | not read by `restore_original` or `check_release_text`. The registry makes its own ids; a deadline is judged when it is given, and an integer beyond the float range is `INVALID_RETENTION_DEADLINE`, not an `OverflowError` | `mask_document` step 3 |
+| `occurrences` | a `tuple` of at most `min(MAX_OCCURRENCES, 999 999)`, counted before any is read | step 7 |
+| `occurrence_id`, `entity_id`, `token` | `fullmatch` of a bounded pattern (an opaque id of at most 128 characters; the token grammar, at most 76 bytes) before the value enters a set | step 7 |
+| `detector_class` | no longer than the longest known class name (23 characters), checked before the lookup that would hash it | step 7 |
+| the four offsets | an `int` from 0 to a limit, compared with the limit alone and before any arithmetic: original offsets at most `MAX_DOCUMENT_BYTES`, masked offsets at most `_masked_size_limit()`. Ordering an `int` against a small constant is decided on its size; subtracting or comparing two of them reads every digit | step 7 |
+| `original_value` | a `PrivateBytes`, whose length is read and whose content is not. It is as long as its original range, which ends at most at `MAX_DOCUMENT_BYTES`, and the ranges do not overlap, so all the values together are no longer than that. `restore_original` also checks the length it would rebuild, `len(masked) - sum(len(token) - len(value))`, against `MAX_DOCUMENT_BYTES` from the lengths alone | step 7 |
+
+The last two rows hold the two size rules. The offset rule needs no artifact, so
+`check_release_text` applies it as well. The rebuilt length is exact where the offsets are
+not: a manifest whose ranges all end inside the limit can still stand in front of a long tail
+of artifact bytes, and only the sum shows that the original it describes is too long.
+`check_release_text` has no artifact, so it cannot apply the second rule. A genuine pair
+always passes both, because a document is never longer than `MAX_DOCUMENT_BYTES` and the
+rebuild of a genuine pair is that document. A test restores every document of the corpus,
+one that ends in a value included, with the limit lowered to exactly its own length.
+
+Measured with one token in front of a 512 MiB value, the case above: restore returned the
+value after 3.4 s and a peak of 1042 MiB (the value held 512 MiB, the join another 512 MiB),
+and the release scan accepted the manifest. Both now answer `MANIFEST_INVALID` in 0.1 ms with
+no growth in memory. A 64 MiB string in `detector_class` cost 20 ms (the hash) and an 8 MiB
+integer in an offset 2 to 4 ms; each now costs the 0.1 ms of every other field.
+
 ### `mask_document` order
 
 1. `original` is `bytes`, else `INVALID_INPUT_TYPE` (no `str`, `bytearray` or
@@ -407,10 +447,11 @@ the candidate budget"). `mask_document`'s own call can never trip it.
 Then the manifest is judged, because the tokens come from it. A manifest that
 `mask_document` could not have made (occurrences that are not a tuple of well-formed
 `Occurrence`, a wrong schema or namespace, a token that does not match its sequence,
-class or namespace, a duplicate, more occurrences than any document can have) is
-`MANIFEST_INVALID` before any token of the text is read, never a `TypeError`. These are
-the structure rules of Mode A step 7 that need no masked artifact; the bom comparison and
-the masked ranges stay with restore.
+class or namespace, a duplicate, more occurrences than any document can have, an offset
+beyond what any document allows) is `MANIFEST_INVALID` before any token of the text is
+read, never a `TypeError`. These are the structure rules of Mode A step 7 that need no
+masked artifact; the bom comparison, the masked ranges and the rebuilt length stay with
+restore.
 
 1. Every occurrence of `[[CB`, case-insensitive, must start a full-grammar token
    (`TOKEN_RE` matched at that index). Otherwise `MALFORMED_TOKEN` (`[[CB1:` fragments,
@@ -451,14 +492,18 @@ failure:
    the masked artifact, including outside token spans, ends here.
 6. Strict UTF-8 decode of `masked`, else `INVALID_UTF8`.
 7. Manifest structure, else `MANIFEST_INVALID`. Python slicing never raises on a bad
-   range, so every item is checked explicitly:
+   range, so every item is checked explicitly, and none may cost more than the limits
+   allow whatever the manifest claims (the table in "Limits and the candidate budget"):
    - `schema_version` is `cb.mask.v1`; `encoding` is `utf-8`; `newline_policy` is
      `preserve`; `bom` is a `bool` equal to "masked bytes start with EF BB BF";
    - `token_namespace` is `[a-z]{28}`; `original_sha256` is 64 lowercase hex digits;
    - `occurrences` is a tuple of at most `min(MAX_OCCURRENCES, 999 999)` `Occurrence`s (a
      longer one is refused without being read); each `original_value` is a `PrivateBytes`
-     and each offset is an `int` (not `bool`);
-   - for the i-th occurrence (1-based): `detector_class` is known and
+     and each offset is an `int` (not `bool`) from 0 up to its limit, compared with that
+     limit before any arithmetic is done on it: original offsets at most
+     `MAX_DOCUMENT_BYTES`, masked offsets at most `_masked_size_limit()`;
+   - for the i-th occurrence (1-based): `detector_class` is known (a name longer than the
+     longest known one is refused before the lookup) and
      `entity_type == ENTITY_TYPES[detector_class]`; the token is full-grammar with the
      same type, the manifest namespace and `SEQ == i`; `segment_id == "body"`;
      `occurrence_id`, `entity_id` and `token` are valid and unique in the manifest;
@@ -468,7 +513,12 @@ failure:
      is at or after the previous end);
    - offsets are mutually consistent:
      `masked_start_i == original_start_i + sum over j < i of (len(token_j) - len(value_j))`;
-   - every masked range lies inside the masked bytes.
+   - every masked range lies inside the masked bytes;
+   - the original that step 9 would rebuild, `len(masked) - sum(len(token) - len(value))`,
+     is at most `MAX_DOCUMENT_BYTES`. It is worked out from the lengths alone, so a manifest
+     whose ranges end inside the limit but stand in front of a long tail is refused before
+     a byte is joined or hashed. `check_release_text` has no artifact and does not apply
+     this one.
 8. Token scan of the decoded masked text against the manifest, category order over the
    whole text: `MALFORMED_TOKEN`, `UNKNOWN_TOKEN`, `DUPLICATE_TOKEN` (a registered token
    appears more than once), `MISSING_TOKEN` (a registered token does not appear), and
@@ -490,10 +540,12 @@ values are not equal either. Nothing is encoded, so a digest in a tampered manif
 cannot raise.
 
 Consequences worth pinning: an artifact over the bound fails step 4 before it is hashed;
-a swapped pair of unequal-length values fails step 7 (`MANIFEST_INVALID`); a swapped pair
-of equal-length values or a replaced `original_sha256` fails step 10; tampering with the
-masked bytes alone fails step 5, as does a `masked_sha256` that is no well-formed digest;
-tampering plus a forged `masked_sha256` reaches step 8 and gets the token-level code.
+a swapped pair of unequal-length values fails step 7 (`MANIFEST_INVALID`), and so does a
+manifest whose values are longer than any document, digests forged and offsets consistent
+included, before a byte is joined or hashed; a swapped pair of equal-length values or a
+replaced `original_sha256` fails step 10; tampering with the masked bytes alone fails
+step 5, as does a `masked_sha256` that is no well-formed digest; tampering plus a forged
+`masked_sha256` reaches step 8 and gets the token-level code.
 
 ## Registry (RAM stand-in for the PR B vault)
 
@@ -556,7 +608,7 @@ needs (random per-occurrence ids, the entity type in the manifest and in the tok
 | `DOCUMENT_TOO_LARGE` | an original longer than `MAX_DOCUMENT_BYTES` (`mask_document`, and `issue` before it hashes), or a masked artifact or release text longer than the masked bound (`restore_original`, the registry's `restore_original`, `check_release_text`; see "Limits and the candidate budget") |
 | `INVALID_UTF8` | the document, or a masked artifact being restored, is not strict UTF-8 |
 | `INVALID_BINDING` | a binding field fails the opaque-id rule, or the argument is not a `DocumentBinding` |
-| `INVALID_RETENTION_DEADLINE` | the deadline is not `None` or a finite non-`bool` real number |
+| `INVALID_RETENTION_DEADLINE` | the deadline is not `None` or a finite non-`bool` real number (an integer beyond the float range is not finite here) |
 | `RESERVED_TOKEN_COLLISION` | the original contains `[[CB`, any case |
 | `SPAN_CONFLICT` | two value spans partially overlap |
 | `TOO_MANY_OCCURRENCES` | more candidates than the budget, or more spans than the limit (see "Limits and the candidate budget"); raised as soon as it is known |
@@ -672,6 +724,7 @@ A later PR may claim a capability only when the evidence in its row exists.
 | Mapping outlives its purpose | RAM only, retention deadline, `discard` |
 | Core is wired into a flow before PR B/C | No-import contract tests; docs call it an experimental core |
 | A crowded or oversized input costs minutes and gigabytes before it is refused | `MAX_OCCURRENCES = 50_000`, a candidate budget, each stage checks the bound it can see; every entry point bounds its input before hashing, decoding, searching or scanning (the masked bound for artifacts and release texts); a `tracemalloc` test on a crowded 3 MiB document; spies on every linear step in an entry-point test |
+| A tampered manifest field makes validation or the rebuild do work as large as the attacker chose | Nothing is read for its size: counts, lengths and offsets are compared with the limits before any arithmetic, hashing or joining; the rebuilt length is checked from lengths before the first byte is joined (the table in "Limits and the candidate budget"); a test makes every field huge in turn and spies on the hash, the join and every size-dependent operation of `str` and `int` subclasses |
 | A tampered manifest or digest ends in a raw exception instead of a code | One digest comparison that never encodes; the release scan judges the manifest first; every such refusal is tested through `assertRejected` (code only, no chained exception) |
 
 ## Verification
@@ -691,9 +744,17 @@ in the registry, and the occurrence budget, including a memory bound measured wi
 entry point refuses an oversized input before any linear work (spies on the hash, the
 decode, the scans and the legacy-marker search), that the masked bound is never tighter
 than a legitimate artifact, and it lists the public entry points, so that a new one has to
-be classified as bounded or exempt. All inputs are synthetic and the suite is
-deterministic: it asserts properties of random tokens, never their values, and holds no
-random-looking hex or base64 literal.
+be classified as bounded or exempt. A manifest class proves that a tampered manifest cannot
+make validation or the rebuild do unbounded work: a single token over a value longer than any
+document, with consistent offsets and forged digests, is refused before the join and the
+final digest (spies on both); the limits are exact and never tighter than a document of
+exactly the limit; and every field of the manifest and of an occurrence is made huge in
+turn, with `str` and `int` subclasses that record each operation whose cost grows with the
+size. The only timing in the suite is a ratio, never a time in seconds: it checks that the
+regex match, the comparison and the ordering which that audit relies on cost a twentieth of
+a linear pass over the same data. All inputs are synthetic and the suite is deterministic:
+it asserts properties of random tokens, never their values, and holds no random-looking hex
+or base64 literal.
 
 ```sh
 python3 -m unittest discover -s tests -p 'test_reversible_masking.py' -v

@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import traceback
 import tracemalloc
 import unittest
@@ -3092,6 +3093,314 @@ class EntryPointBoundTests(CoreTestCase):
         # A new public function or method must be put in one of the two sets, with a reason if exempt.
         self.assertEqual(public, self.BOUNDED | set(self.EXEMPT))
         self.assertTrue(all(reason for reason in self.EXEMPT.values()))
+
+
+HUGE = 32 * 2**20  # a huge field: hashing a fresh str this long takes ~10 ms, comparing one with a constant ~1 us
+
+
+def _logged(base, name):
+    original = getattr(base, name)
+
+    def method(self, *args, **kwargs):
+        self.log.append(name)
+        return original(self, *args, **kwargs)
+
+    return method
+
+
+class WatchedStr(str):
+    """A str that logs the Python-level operations whose cost grows with its length.
+
+    ``len``, ``==`` and ``!=`` are not logged: they are settled on the length. The regex engine reads
+    the characters without calling any method, so a separate test measures it instead.
+    """
+
+    def __new__(cls, size: int, log: list[str]):
+        instance = super().__new__(cls, "a" * size)
+        instance.log = log
+        return instance
+
+
+for _name in (
+    "__hash__", "__iter__", "__getitem__", "__contains__", "__add__", "__mul__", "__rmul__", "__mod__",
+    "__rmod__", "encode", "lower", "upper", "casefold", "strip", "lstrip", "rstrip", "split", "rsplit", "splitlines",
+    "partition", "rpartition", "startswith", "endswith", "find", "rfind", "index", "rindex", "count",
+    "replace", "translate", "format", "join", "isalnum", "isalpha", "isdigit", "isascii", "isspace",
+    "zfill", "ljust", "rjust", "center", "expandtabs",
+):  # fmt: skip
+    setattr(WatchedStr, _name, _logged(str, _name))
+
+
+class WatchedInt(int):
+    """An int that logs arithmetic, equality and hashing, which are linear in the digits of a huge one.
+
+    Ordering against a small constant is not logged: it is settled on the size of the int.
+    """
+
+    def __new__(cls, value: int, log: list[str]):
+        instance = super().__new__(cls, value)
+        instance.log = log
+        return instance
+
+
+for _name in (
+    "__add__", "__radd__", "__sub__", "__rsub__", "__mul__", "__rmul__", "__floordiv__", "__rfloordiv__",
+    "__mod__", "__rmod__", "__divmod__", "__pow__", "__neg__", "__abs__", "__lshift__", "__rshift__",
+    "__and__", "__or__", "__xor__", "__eq__", "__ne__", "__hash__",
+):  # fmt: skip
+    setattr(WatchedInt, _name, _logged(int, _name))
+
+
+# Proves #28 §10 PR A item 3c (hardening): a tampered manifest cannot make validation or the rebuild do unbounded work.
+class ManifestWorkBoundTests(CoreTestCase):
+    def setUp(self) -> None:
+        self.raw = corpus_doc("lf").raw  # a name and an email: two occurrences
+        self.safe, self.manifest = self.mask(self.raw)
+        self.masked, self.text = self.safe.masked_bytes, self.safe.masked_text
+        self.canaries = [NAME_A, EMAIL_A]
+
+    def forged(self, value: bytes, tail: bytes = b""):
+        """One token at masked offset 0 over `value`, every offset consistent, both digests forged to pass."""
+        first = self.manifest.occurrences[0]
+        token = first.token
+        masked = token.encode("ascii") + tail
+        occurrence = dataclasses.replace(
+            first,
+            original_byte_start=0,
+            original_byte_end=len(value),
+            masked_byte_start=0,
+            masked_byte_end=len(token),
+            original_value=PrivateBytes(value),
+        )
+        manifest = dataclasses.replace(
+            self.manifest,
+            occurrences=(occurrence,),
+            masked_sha256=sha(masked),
+            original_sha256=sha(value + tail),
+        )
+        return masked, manifest
+
+    def refused_without_rebuilding(self, masked: bytes, manifest: PrivateManifest) -> None:
+        """Restore says MANIFEST_INVALID, and neither the join nor the final digest ever happens."""
+        with (
+            patch.object(rm, "_sha256", wraps=rm._sha256) as hashing,
+            patch.object(rm.PrivateBytes, "reveal", autospec=True, side_effect=rm.PrivateBytes.reveal) as revealed,
+        ):
+            self.assertRestoreRejected("MANIFEST_INVALID", masked, manifest, canaries=self.canaries)
+        self.assertEqual(hashing.call_count, 1)  # the masked artifact, and nothing after it
+        revealed.assert_not_called()  # the values are only read to build the join
+
+    def test_one_value_longer_than_the_document_limit_is_refused_before_the_rebuild(self) -> None:
+        # The offsets are consistent and both digests pass: only the length of the value gives it away.
+        with patch.object(rm, "MAX_DOCUMENT_BYTES", 64):
+            masked, manifest = self.forged(b"v" * 1000)
+            self.refused_without_rebuilding(masked, manifest)
+            self.assertRejected("MANIFEST_INVALID", check_release_text, masked.decode("ascii"), manifest)
+            # The same manifest over a value that fits is fine, so the length is what is refused:
+            # exactly the limit passes both, one byte more fails both.
+            masked, manifest = self.forged(b"v" * 64)
+            self.assertEqual(restore_original(masked, manifest, BINDING_A), b"v" * 64)
+            self.assertIsNone(check_release_text(masked.decode("ascii"), manifest))
+            masked, manifest = self.forged(b"v" * 65)
+            self.refused_without_rebuilding(masked, manifest)
+            self.assertRejected("MANIFEST_INVALID", check_release_text, masked.decode("ascii"), manifest)
+
+    def test_the_rebuilt_length_is_bounded_exactly_and_by_the_restore_only(self) -> None:
+        # The last occurrence ends at len(raw) - 1, so every offset is within the limit; the trailing
+        # newline is the one byte too many in the original that would be rebuilt.
+        limit = len(self.raw) - 1
+        with patched_limits(limit, 2):
+            self.assertEqual(max(o.original_byte_end for o in self.manifest.occurrences), limit)
+            self.refused_without_rebuilding(self.masked, self.manifest)
+            # The release scan has no masked artifact, so it cannot know, and accepts the manifest.
+            self.assertIsNone(check_release_text(self.text, self.manifest))
+        with patched_limits(len(self.raw), 2):
+            self.assertEqual(restore_original(self.masked, self.manifest, BINDING_A), self.raw)
+
+    def test_a_long_tail_the_masked_bound_still_allows_is_caught_by_the_rebuilt_length(self) -> None:
+        # 76 more bytes after the last token: the masked artifact is exactly at the masked bound,
+        # and the original it would rebuild is 131 bytes against a limit of 54.
+        tail = b"x" * 76
+        safe, manifest = self.mask(self.raw + tail)
+        longer_safe, longer_manifest = self.mask(self.raw + tail + b"x")
+        with patched_limits(len(self.raw) - 1, 2):
+            self.assertEqual(len(safe.masked_bytes), rm._masked_size_limit())
+            self.refused_without_rebuilding(safe.masked_bytes, manifest)
+            self.assertIsNone(check_release_text(safe.masked_text, manifest))
+            # One more byte of tail and the masked bound is the first to say no.
+            self.assertRestoreRejected(
+                "DOCUMENT_TOO_LARGE", longer_safe.masked_bytes, longer_manifest, canaries=self.canaries
+            )
+        with patched_limits(len(self.raw) + len(tail), 2):
+            safe, manifest = self.mask(self.raw + tail)
+            self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), self.raw + tail)
+
+    def test_the_bound_is_never_tighter_than_a_document_of_exactly_the_limit(self) -> None:
+        for doc in CORPUS:
+            with self.subTest(doc=doc.name):
+                # Only the document limit is lowered, to the document's own length: an occurrence may
+                # end exactly at the limit (the document that ends with a value), and the rebuilt
+                # original is exactly the limit.
+                with patch.object(rm, "MAX_DOCUMENT_BYTES", len(doc.raw)):
+                    safe, manifest = self.mask(doc.raw)
+                    self.assertEqual(restore_original(safe.masked_bytes, manifest, BINDING_A), doc.raw)
+                    self.assertIsNone(check_release_text(safe.masked_text, manifest))
+                    registry = InMemoryManifestRegistry()
+                    issued = registry.issue(doc.raw, BINDING_A)
+                    restored = registry.restore_original(
+                        issued.masked_bytes, manifest_id=issued.manifest_id, binding=BINDING_A
+                    )
+                    self.assertEqual(restored, doc.raw)
+        ends_with_a_value = corpus_doc("no_final_newline")
+        _, manifest = self.mask(ends_with_a_value.raw)
+        self.assertEqual(manifest.occurrences[-1].original_byte_end, len(ends_with_a_value.raw))
+
+    def test_the_class_name_of_an_occurrence_is_never_longer_than_the_longest_known_one(self) -> None:
+        self.assertEqual(rm._MAX_CLASS_NAME_LENGTH, max(len(name) for name, _ in PATTERNS))
+        self.assertEqual(rm._MAX_CLASS_NAME_LENGTH, max(len(name) for name in rm.ENTITY_TYPES))
+
+    def field_cases(self):
+        """(label, build(log) -> (manifest, masked), restore code, release scan code), None meaning 'accepted'."""
+        invalid = "MANIFEST_INVALID"
+
+        def whole(change):
+            return lambda log: (change(log), self.masked)
+
+        def on_manifest(name):
+            return whole(lambda log: dataclasses.replace(self.manifest, **{name: WatchedStr(HUGE, log)}))
+
+        def on_occurrence(name):
+            return whole(lambda log: replace_occurrence(self.manifest, 0, **{name: WatchedStr(HUGE, log)}))
+
+        def on_offset(name, sign):
+            return whole(
+                lambda log: replace_occurrence(self.manifest, 0, **{name: WatchedInt(sign << (8 * 2**20), log)})
+            )
+
+        def huge_deadline(log):
+            return dataclasses.replace(self.manifest, retention_deadline=WatchedInt(1 << (8 * 2**20), log))
+
+        def crowded(log):
+            return dataclasses.replace(self.manifest, occurrences=(self.manifest.occurrences[0],) * 3_000_000)
+
+        def huge_value(log):
+            masked, manifest = self.forged(b"v" * HUGE)
+            return manifest, masked
+
+        cases = [
+            ("manifest.schema_version", on_manifest("schema_version"), invalid, invalid),
+            ("manifest.manifest_id", on_manifest("manifest_id"), None, None),
+            ("manifest.binding", on_manifest("binding"), "BINDING_MISMATCH", None),
+            ("manifest.token_namespace", on_manifest("token_namespace"), invalid, invalid),
+            ("manifest.original_sha256", on_manifest("original_sha256"), invalid, invalid),
+            ("manifest.masked_sha256", on_manifest("masked_sha256"), "MASKED_DIGEST_MISMATCH", None),
+            ("manifest.parser_version", on_manifest("parser_version"), None, None),
+            ("manifest.policy_version", on_manifest("policy_version"), None, None),
+            ("manifest.detector_version", on_manifest("detector_version"), None, None),
+            ("manifest.bom", on_manifest("bom"), invalid, invalid),
+            ("manifest.encoding", on_manifest("encoding"), invalid, invalid),
+            ("manifest.newline_policy", on_manifest("newline_policy"), invalid, invalid),
+            ("manifest.restore_policy", on_manifest("restore_policy"), "RESTORE_NOT_PERMITTED", None),
+            ("manifest.key_id", on_manifest("key_id"), None, None),
+            ("manifest.retention_deadline", whole(huge_deadline), None, None),
+            ("manifest.occurrences, a tuple of 3 million", whole(crowded), invalid, invalid),
+            ("occurrence.occurrence_id", on_occurrence("occurrence_id"), invalid, invalid),
+            ("occurrence.token", on_occurrence("token"), invalid, invalid),
+            ("occurrence.entity_id", on_occurrence("entity_id"), invalid, invalid),
+            ("occurrence.entity_type", on_occurrence("entity_type"), invalid, invalid),
+            ("occurrence.detector_class", on_occurrence("detector_class"), invalid, invalid),
+            ("occurrence.segment_id", on_occurrence("segment_id"), invalid, invalid),
+            ("occurrence.original_value", huge_value, invalid, invalid),
+        ]
+        for name in ("original_byte_start", "original_byte_end", "masked_byte_start", "masked_byte_end"):
+            cases.append((f"occurrence.{name}, a huge int", on_offset(name, 1), invalid, invalid))
+            cases.append((f"occurrence.{name}, a huge negative int", on_offset(name, -1), invalid, invalid))
+        return cases
+
+    def test_no_field_of_a_tampered_manifest_costs_work_proportional_to_its_size(self) -> None:
+        # Every field the restore path or the release scan can touch, made huge one at a time: both say
+        # what they documented, and the Python-level operations that grow with the size never run.
+        for label, build, restore_code, release_code in self.field_cases():
+            with self.subTest(field=label):
+                log: list[str] = []
+                manifest, masked = build(log)
+                text = masked.decode("ascii") if masked is not self.masked else self.text
+                with (
+                    patch.object(rm, "_sha256", wraps=rm._sha256) as hashing,
+                    patch.object(
+                        rm.PrivateBytes, "reveal", autospec=True, side_effect=rm.PrivateBytes.reveal
+                    ) as revealed,
+                ):
+                    if restore_code is None:
+                        self.assertEqual(restore_original(masked, manifest, BINDING_A), self.raw)
+                    else:
+                        self.assertRestoreRejected(restore_code, masked, manifest, canaries=self.canaries)
+                        self.assertLessEqual(hashing.call_count, 1, "only the masked artifact is ever hashed")
+                        revealed.assert_not_called()
+                if release_code is None:
+                    self.assertIsNone(check_release_text(text, manifest))
+                else:
+                    self.assertRejected(release_code, check_release_text, text, manifest, canaries=self.canaries)
+                self.assertEqual(log, [], f"{label}: work that grows with the value was done: {sorted(set(log))}")
+
+    def test_the_cheap_operations_the_audit_relies_on_stay_cheap_on_huge_values(self) -> None:
+        # What the field table above does not see: the regex engine and str comparison read the
+        # characters without calling any method. Measured against a linear pass over the same size.
+        def fastest(call, repeats: int = 5) -> float:
+            best = float("inf")
+            for _ in range(repeats):
+                start = time.perf_counter()
+                call()
+                best = min(best, time.perf_counter() - start)
+            return best
+
+        fresh = ["a" * HUGE for _ in range(3)]
+        hash_costs = []
+        for text in fresh:
+            start = time.perf_counter()
+            hash(text)
+            hash_costs.append(time.perf_counter() - start)
+        budget = min(hash_costs) / 20
+        huge = fresh[0]
+        for name in ("_SHA256_RE", "_NAMESPACE_RE", "TOKEN_RE", "OPAQUE_ID_RE"):
+            regex = getattr(rm, name)
+            with self.subTest(regex=name):
+                self.assertLess(fastest(lambda: regex.fullmatch(huge)), budget)
+        for constant in (rm.SCHEMA_VERSION, rm.RESTORE_ORIGINAL_IN_PLACE, "utf-8", "preserve", "body", "PERSON"):
+            with self.subTest(compared_with=constant):
+                self.assertLess(fastest(lambda: huge != constant), budget)
+                self.assertLess(fastest(lambda: huge == constant), budget)
+        # An int: ordering against a small constant is settled on its size, arithmetic is linear.
+        huge_int = 1 << (8 * 4 * 2**20)
+        negative_int = -huge_int
+        add_cost = fastest(lambda: huge_int + 1, repeats=3)
+        self.assertLess(fastest(lambda: 0 <= huge_int <= rm.MAX_DOCUMENT_BYTES), add_cost / 20)
+        self.assertLess(fastest(lambda: 0 <= negative_int <= rm.MAX_DOCUMENT_BYTES), add_cost / 20)
+
+
+# Proves #28 §10 PR A item 3d (hardening): a retention deadline no clock can reach is refused with a code.
+class RetentionDeadlineRangeTests(CoreTestCase):
+    def test_an_int_too_large_for_a_float_is_refused_with_a_code_not_an_overflow(self) -> None:
+        raw = corpus_doc("lf").raw
+        for deadline in (10**309, -(10**309), 10**400, 1 << 2000):
+            with self.subTest(bits=deadline.bit_length()):
+                self.assertRejected(
+                    "INVALID_RETENTION_DEADLINE", mask_document, raw, BINDING_A, retention_deadline=deadline
+                )
+                self.assertRejected(
+                    "INVALID_RETENTION_DEADLINE",
+                    InMemoryManifestRegistry().issue,
+                    raw,
+                    BINDING_A,
+                    retention_deadline=deadline,
+                )
+
+    def test_the_largest_numbers_a_float_can_hold_are_still_accepted(self) -> None:
+        raw = corpus_doc("lf").raw
+        for deadline in (10**308, -(10**308), sys.float_info.max, 10**12):
+            with self.subTest(deadline=deadline):
+                _, manifest = self.mask(raw, retention_deadline=deadline)
+                self.assertEqual(manifest.retention_deadline, deadline)
 
 
 CORE_SOURCE_PATH = WORKER_DIR / "reversible_masking.py"

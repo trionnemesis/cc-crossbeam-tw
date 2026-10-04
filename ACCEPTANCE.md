@@ -27,7 +27,7 @@ credentials and deployment evidence.
 | Issue #8 | No raw content in model/log/channel | Passed post-hardening | provider spy + canary leaks = 0 |
 | ADR-0002 | Local Codex provider | Passed live synthetic | structured Codex ChatGPT-auth output |
 | ADR-0002 | Cloud production fail-closed configuration | Passed negative | runtime config tests |
-| Issue #28 PR A | Reversible TXT masking core | Passed synthetic | `tests/test_reversible_masking.py` (179 tests) |
+| Issue #28 PR A | Reversible TXT masking core | Passed synthetic | `tests/test_reversible_masking.py` (188 tests) |
 
 ## 3. Scenario results
 
