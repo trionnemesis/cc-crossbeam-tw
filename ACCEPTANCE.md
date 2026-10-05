@@ -27,6 +27,7 @@ credentials and deployment evidence.
 | Issue #8 | No raw content in model/log/channel | Passed post-hardening | provider spy + canary leaks = 0 |
 | ADR-0002 | Local Codex provider | Passed live synthetic | structured Codex ChatGPT-auth output |
 | ADR-0002 | Cloud production fail-closed configuration | Passed negative | runtime config tests |
+| Issue #28 PR A | Reversible TXT masking core | Passed synthetic | `tests/test_reversible_masking.py` (201 tests) |
 
 ## 3. Scenario results
 
@@ -51,6 +52,7 @@ production build, and the cross-process E2E above. CI runs the same E2E.
 | LINE channel credentials | Live account link/webhook cannot be accepted | External input absent |
 | PDF/image parsing | Unsafe native parser exposure | Disabled; UTF-8 TXT only until sandboxed |
 | Cloud production | Not required for current one-user Codex-auth decision | Explicitly fail closed |
+| Privacy release, encrypted vault, authorized export | No reversible restore or export in the product; the PR A core is not wired in | Not available until issue #28 PR B/C |
 
 ## 5. Early probes
 

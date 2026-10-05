@@ -132,6 +132,8 @@ Read the [Secure Web runbook](./docs/runbook-secure-web.md) before handling real
 | **Uncertainty** | Missing evidence, unknown legal-effective dates, pending source changes, inactive/ambiguous versions, low confidence, professional judgment, and unsupported claims fail closed and produce human-review work. |
 | **Production** | Cloud mode rejects local auth, local storage, local DB, in-process jobs, and the local Codex provider until approved adapters and credentials exist. |
 
+An experimental, opt-in reversible masking core (`cb.mask.v1`, issue #28 PR A) lives in [`worker/secure_worker/reversible_masking.py`](./worker/secure_worker/reversible_masking.py). It masks a UTF-8 TXT document into per-occurrence tokens and restores the original byte for byte from a private manifest, refusing on any mismatch (tampered, missing, duplicated, swapped or foreign tokens, wrong case/document/version, digest or offset errors). The manifest lives in process memory only, nothing in the upload path calls the core, and it has no endpoint, persistence, or model path; uploads still use the irreversible `[MASKED_<CLASS>]` masking. See [ADR-0003](./docs/ADR-0003-reversible-masking.md). Privacy release and an encrypted vault (PR B), authorized restore/export (PR C) and PDF adapters (PR D) are not built.
+
 This prototype does **not**:
 
 - enable multi-user case invitations or reviewer collaboration; the current `reviewer` and `invitation` schema is reserved for a future adapter;
